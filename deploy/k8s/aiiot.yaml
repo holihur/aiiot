@@ -1,0 +1,342 @@
+# AI IoT Platform — Kubernetes manifests (all-in-one)
+#
+#   kubectl apply -f deploy/k8s/aiiot.yaml
+#
+# Build & push the image first:
+#   docker build -f backend/Dockerfile -t <registry>/aiiot:1.0.0 .
+#   docker push <registry>/aiiot:1.0.0
+#
+# Then set image + secrets below (or use kubectl create secret).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aiiot
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aiiot-secrets
+  namespace: aiiot
+type: Opaque
+stringData:
+  DB_PASSWORD: "postgres"
+  JWT_SECRET: "change-me-in-production-please-32chars"
+  GATEWAY_TOKEN: "change-me-gateway-token"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aiiot-config
+  namespace: aiiot
+data:
+  DB_HOST: "postgres"
+  DB_PORT: "5432"
+  DB_USER: "postgres"
+  DB_NAME: "aiiot"
+  DB_SSLMODE: "disable"
+  HTTP_ADDR: "0.0.0.0:8080"
+  WEB_DIR: "/app/web/dist"
+  OTA_PUBLIC_BASE_URL: "http://aiiot-core.aiiot.svc.cluster.local:8080"
+  GATEWAY_CORE_URL: "http://aiiot-core:8080"
+  NATS_URL: "nats://nats:4222"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: aiiot
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports: [{ containerPort: 5432 }]
+          env:
+            - { name: POSTGRES_USER, value: postgres }
+            - { name: POSTGRES_DB, value: aiiot }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: aiiot-secrets, key: DB_PASSWORD } }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "postgres"] }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 20Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: aiiot
+spec:
+  selector: { app: postgres }
+  ports: [{ port: 5432, targetPort: 5432 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: aiiot
+spec:
+  serviceName: nats
+  replicas: 1
+  selector:
+    matchLabels: { app: nats }
+  template:
+    metadata:
+      labels: { app: nats }
+    spec:
+      containers:
+        - name: nats
+          image: nats:2.10-alpine
+          args: ["-js", "-sd", "/data", "-m", "8222"]
+          ports:
+            - { name: client, containerPort: 4222 }
+            - { name: monitor, containerPort: 8222 }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8222 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources: { requests: { storage: 10Gi } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: aiiot
+spec:
+  selector: { app: nats }
+  ports:
+    - { name: client, port: 4222, targetPort: 4222 }
+    - { name: monitor, port: 8222, targetPort: 8222 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiiot-core
+  namespace: aiiot
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: aiiot-core }
+  template:
+    metadata:
+      labels: { app: aiiot-core }
+    spec:
+      containers:
+        - name: core
+          image: aiiot:1.0.0 # <-- set your image
+          command: ["/app/bin/core"]
+          ports: [{ containerPort: 8080 }]
+          envFrom:
+            - configMapRef: { name: aiiot-config }
+          env:
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: aiiot-secrets, key: DB_PASSWORD } }
+            - name: JWT_SECRET
+              valueFrom: { secretKeyRef: { name: aiiot-secrets, key: JWT_SECRET } }
+            - name: GATEWAY_TOKEN
+              valueFrom: { secretKeyRef: { name: aiiot-secrets, key: GATEWAY_TOKEN } }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiiot-core
+  namespace: aiiot
+spec:
+  selector: { app: aiiot-core }
+  ports: [{ name: http, port: 8080, targetPort: 8080 }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: aiiot-core
+  namespace: aiiot
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: aiiot-core }
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+---
+# --- Protocol gateways (one Deployment each; scale independently) -----------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiiot-mqtt-gateway
+  namespace: aiiot
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: aiiot-mqtt-gateway }
+  template:
+    metadata:
+      labels: { app: aiiot-mqtt-gateway }
+    spec:
+      containers:
+        - name: gateway
+          image: aiiot:1.0.0 # <-- set your image
+          command: ["/app/bin/mqtt-gateway"]
+          ports:
+            - { name: mqtt, containerPort: 1883 }
+            - { name: downlink, containerPort: 9101 }
+          env:
+            - { name: GATEWAY_CORE_URL, value: "http://aiiot-core:8080" }
+            - { name: GATEWAY_INSTANCE_ID, value: "mqtt-1" }
+            - { name: GATEWAY_DOWNLINK_ADDR, value: "0.0.0.0:9101" }
+            - { name: MQTT_TCP_ADDR, value: "0.0.0.0:1883" }
+            - { name: NATS_URL, value: "nats://nats:4222" }
+            - { name: GATEWAY_ADVERTISE_HOST, valueFrom: { fieldRef: { fieldPath: status.podIP } } }
+            - name: GATEWAY_TOKEN
+              valueFrom: { secretKeyRef: { name: aiiot-secrets, key: GATEWAY_TOKEN } }
+          resources:
+            requests: { cpu: 100m, memory: 96Mi }
+            limits: { cpu: "1", memory: 384Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiiot-mqtt-gateway
+  namespace: aiiot
+spec:
+  selector: { app: aiiot-mqtt-gateway }
+  ports:
+    - { name: mqtt, port: 1883, targetPort: 1883 }
+    - { name: downlink, port: 9101, targetPort: 9101 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiiot-coap-gateway
+  namespace: aiiot
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: aiiot-coap-gateway }
+  template:
+    metadata:
+      labels: { app: aiiot-coap-gateway }
+    spec:
+      containers:
+        - name: gateway
+          image: aiiot:1.0.0 # <-- set your image
+          command: ["/app/bin/coap-gateway"]
+          ports:
+            - { name: coap, containerPort: 5683, protocol: UDP }
+            - { name: downlink, containerPort: 9102 }
+          env:
+            - { name: GATEWAY_CORE_URL, value: "http://aiiot-core:8080" }
+            - { name: GATEWAY_INSTANCE_ID, value: "coap-1" }
+            - { name: GATEWAY_DOWNLINK_ADDR, value: "0.0.0.0:9102" }
+            - { name: COAP_UDP_ADDR, value: "0.0.0.0:5683" }
+            - { name: NATS_URL, value: "nats://nats:4222" }
+            - { name: GATEWAY_ADVERTISE_HOST, valueFrom: { fieldRef: { fieldPath: status.podIP } } }
+            - name: GATEWAY_TOKEN
+              valueFrom: { secretKeyRef: { name: aiiot-secrets, key: GATEWAY_TOKEN } }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: "1", memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiiot-coap-gateway
+  namespace: aiiot
+spec:
+  selector: { app: aiiot-coap-gateway }
+  ports:
+    - { name: coap, port: 5683, targetPort: 5683, protocol: UDP }
+    - { name: downlink, port: 9102, targetPort: 9102 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aiiot-custom-gateway
+  namespace: aiiot
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: aiiot-custom-gateway }
+  template:
+    metadata:
+      labels: { app: aiiot-custom-gateway }
+    spec:
+      containers:
+        - name: gateway
+          image: aiiot:1.0.0 # <-- set your image
+          command: ["/app/bin/custom-gateway"]
+          ports:
+            - { name: tcp, containerPort: 9000 }
+            - { name: downlink, containerPort: 9103 }
+          env:
+            - { name: GATEWAY_CORE_URL, value: "http://aiiot-core:8080" }
+            - { name: GATEWAY_INSTANCE_ID, value: "custom-1" }
+            - { name: GATEWAY_DOWNLINK_ADDR, value: "0.0.0.0:9103" }
+            - { name: CUSTOM_TCP_ADDR, value: "0.0.0.0:9000" }
+            - { name: NATS_URL, value: "nats://nats:4222" }
+            - { name: GATEWAY_ADVERTISE_HOST, valueFrom: { fieldRef: { fieldPath: status.podIP } } }
+            - name: GATEWAY_TOKEN
+              valueFrom: { secretKeyRef: { name: aiiot-secrets, key: GATEWAY_TOKEN } }
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: "1", memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aiiot-custom-gateway
+  namespace: aiiot
+spec:
+  selector: { app: aiiot-custom-gateway }
+  ports:
+    - { name: tcp, port: 9000, targetPort: 9000 }
+    - { name: downlink, port: 9103, targetPort: 9103 }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aiiot
+  namespace: aiiot
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "256m"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: aiiot.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: aiiot-core, port: { number: 8080 } }

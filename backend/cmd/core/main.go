@@ -1,0 +1,240 @@
+// Command core is the aiiot control plane: REST API, device registry,
+// time-series ingestion, CEL rule engine and the gateway protocol server.
+//
+// Protocol gateways (mqtt-gateway, coap-gateway, custom-gateway) are separate
+// programs that connect to this process.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/aiiot/server/internal/access"
+	"github.com/aiiot/server/internal/api"
+	"github.com/aiiot/server/internal/auth"
+	"github.com/aiiot/server/internal/bus"
+	"github.com/aiiot/server/internal/config"
+	"github.com/aiiot/server/internal/database"
+	"github.com/aiiot/server/internal/gateway"
+	"github.com/aiiot/server/internal/metrics"
+	"github.com/aiiot/server/internal/models"
+	"github.com/aiiot/server/internal/service"
+	"gorm.io/gorm"
+)
+
+func main() {
+	cfg := config.Load()
+	log := newLogger(cfg.LogLevel)
+	slog.SetDefault(log)
+
+	db, err := database.Connect(cfg.DB, cfg.AppEnv)
+	if err != nil {
+		log.Error("database connection failed", "error", err)
+		os.Exit(1)
+	}
+	if err := database.Migrate(db, cfg.Telemetry); err != nil {
+		log.Error("database migration failed", "error", err)
+		os.Exit(1)
+	}
+	log.Info("database ready")
+	api.SeedAdmin(db, cfg.AdminUsername, cfg.AdminPassword, log)
+
+	tokens := auth.NewTokenService(cfg.JWTSecret, cfg.JWTTTL)
+	resolver := service.NewResolver(db)
+	telemetry := service.NewTelemetryService(db, cfg.Telemetry, log)
+	registry := gateway.NewRegistry(db, cfg.Gateway.HeartbeatTimeout)
+	downlink := service.NewDownlinkService(resolver, registry, log)
+	shadow := service.NewShadowService(db, downlink, log)
+	ota := service.NewOTAService(db, downlink, resolver, cfg.OTA, log)
+	notifier := service.NewNotifier(db, log)
+	settings := service.NewSettings(db)
+	hub := service.NewHub()
+
+	rules, err := service.NewRuleEngine(db, downlink, shadow, resolver, notifier, log)
+	if err != nil {
+		log.Error("rule engine init failed", "error", err)
+		os.Exit(1)
+	}
+	// Rules can trigger on shadow-delta state changes.
+	shadow.SetDeltaHook(func(hctx context.Context, dc *service.DeviceContext, delta map[string]any) {
+		rules.Evaluate(hctx, &service.RuleEvent{
+			Kind:        access.KindShadowDelta,
+			ProjectID:   dc.Project.ID,
+			WorkspaceID: dc.Workspace.ID,
+			ProductID:   dc.Product.ID,
+			DeviceID:    dc.Device.ID,
+			DeviceKey:   dc.Device.Key,
+			Params:      delta,
+			Value:       delta,
+			Now:         time.Now().UTC(),
+			Device:      dc.Device,
+		})
+	})
+	ingest := service.NewIngestService(db, resolver, telemetry, rules, downlink, shadow, ota, hub, cfg.Ingest.DeviceOfflineAfter, log)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// NATS is a mandatory platform component: the core consumes device uplinks
+	// from the JetStream stream via a durable, queue-grouped consumer.
+	natsSubject := cfg.NATS.Subject
+	if natsSubject == "" {
+		natsSubject = bus.DefaultSubject
+	}
+	uplinkSub, err := bus.NewSubscriber(cfg.NATS, func(data []byte, delivered uint64) error {
+		start := time.Now()
+		var env gateway.UplinkEnvelope
+		if err := json.Unmarshal(data, &env); err != nil {
+			// Malformed frames cannot be fixed by redelivery; drop and log.
+			log.Warn("nats uplink decode failed", "error", err)
+			metrics.ObserveNATSConsume(natsSubject, err, delivered, start)
+			return nil
+		}
+		msg := env.ToAccess()
+		if msg.Timestamp.IsZero() {
+			msg.Timestamp = time.Now().UTC()
+		}
+		ingestErr := ingest.Handle(context.Background(), msg)
+		metrics.ObserveNATSConsume(natsSubject, ingestErr, delivered, start)
+		if ingestErr != nil {
+			log.Warn("ingest failed", "error", ingestErr, "device", msg.Device.DeviceKey, "kind", msg.Kind)
+			return ingestErr // transient failure -> redeliver
+		}
+		return nil
+	})
+	if err != nil {
+		log.Error("nats uplink subscriber failed", "error", err)
+		os.Exit(1)
+	}
+	defer uplinkSub.Close()
+
+	telemetry.Start(ctx)
+	notifier.Start(ctx)
+	if err := registry.Load(ctx); err != nil {
+		log.Warn("load gateway registry failed", "error", err)
+	}
+	if err := rules.Reload(ctx); err != nil {
+		log.Warn("initial rule reload failed", "error", err)
+	}
+
+	handlers := &api.Handlers{
+		DB:               db,
+		Tokens:           tokens,
+		Resolver:         resolver,
+		Telemetry:        telemetry,
+		Ingest:           ingest,
+		Rules:            rules,
+		Shadow:           shadow,
+		OTA:              ota,
+		Notifier:         notifier,
+		Settings:         settings,
+		Hub:              hub,
+		Downlink:         downlink,
+		Registry:         registry,
+		GatewayToken:     cfg.Gateway.Token,
+		PublicHost:       cfg.PublicHost,
+		RetentionDefault: cfg.Telemetry.RetentionDays,
+		Log:              log,
+		Bus:              uplinkSub,
+		NATSSubject:      natsSubject,
+	}
+	router := api.NewRouter(handlers)
+	if api.RegisterStatic(router, cfg.WebDir) {
+		log.Info("serving frontend", "dir", cfg.WebDir)
+	} else if cfg.WebDir != "" {
+		log.Warn("frontend directory not found, static hosting disabled", "dir", cfg.WebDir)
+	}
+
+	srv := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	go backgroundJobs(ctx, db, cfg, ingest, registry, log)
+
+	go func() {
+		log.Info("core HTTP server listening", "addr", cfg.HTTPAddr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("http server failed", "error", err)
+			stop()
+		}
+	}()
+
+	<-ctx.Done()
+	log.Info("shutting down core")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutdownCtx)
+	telemetry.Stop()
+	log.Info("core stopped")
+}
+
+func backgroundJobs(ctx context.Context, db *gorm.DB, cfg *config.Config, ingest *service.IngestService, registry *gateway.Registry, log *slog.Logger) {
+	offlineTicker := time.NewTicker(time.Minute)
+	partitionTicker := time.NewTicker(6 * time.Hour)
+	retentionTicker := time.NewTicker(12 * time.Hour)
+	rollupTicker := time.NewTicker(5 * time.Minute)
+	metricsTicker := time.NewTicker(30 * time.Second)
+	defer offlineTicker.Stop()
+	defer partitionTicker.Stop()
+	defer retentionTicker.Stop()
+	defer rollupTicker.Stop()
+	defer metricsTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-offlineTicker.C:
+			ingest.SweepOffline(ctx)
+		case <-metricsTicker.C:
+			updateGauges(ctx, db, registry)
+		case <-partitionTicker.C:
+			if err := database.EnsurePartitions(db, cfg.Telemetry.PartitionAhead); err != nil {
+				log.Warn("ensure partitions failed", "error", err)
+			}
+		case <-rollupTicker.C:
+			if err := database.RefreshRollup(ctx, db); err != nil {
+				log.Warn("refresh telemetry rollup failed", "error", err)
+			}
+		case <-retentionTicker.C:
+			days := service.NewSettings(db).GetInt(ctx, "telemetry.retention_days", cfg.Telemetry.RetentionDays)
+			if days > 0 {
+				if err := database.DropOldPartitions(db, days); err != nil {
+					log.Warn("drop old partitions failed", "error", err)
+				}
+			}
+		}
+	}
+}
+
+// updateGauges refreshes the periodically-computed Prometheus gauges.
+func updateGauges(ctx context.Context, db *gorm.DB, registry *gateway.Registry) {
+	var online int64
+	if err := db.WithContext(ctx).Model(&models.Device{}).Where("online = ?", true).Count(&online).Error; err == nil {
+		metrics.SetDevicesOnline(float64(online))
+	}
+	healthy := 0
+	for _, inst := range registry.List() {
+		if inst.Healthy {
+			healthy++
+		}
+	}
+	metrics.SetGatewaysHealthy(float64(healthy))
+}
+
+func newLogger(level string) *slog.Logger {
+	var lvl slog.Level
+	if err := lvl.UnmarshalText([]byte(level)); err != nil {
+		lvl = slog.LevelInfo
+	}
+	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+}

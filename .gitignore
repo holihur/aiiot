@@ -1,0 +1,18 @@
+# backend
+backend/bin/
+backend/.run/
+backend/web/dist/
+backend/.env
+backend/ota/
+
+# frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.pnpm-store/
+
+# build artifacts
+*.tsbuildinfo
+
+# misc
+*.log
+.DS_Store
