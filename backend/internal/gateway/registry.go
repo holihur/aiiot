@@ -19,16 +19,16 @@ import (
 
 // Instance is a registered protocol gateway as seen by the core.
 type Instance struct {
-	InstanceID    string            `json:"instanceId"`
-	Protocol      string            `json:"protocol"`
-	Version       string            `json:"version"`
-	DownlinkURL   string            `json:"downlinkUrl"`
-	Metadata      models.JSONMap    `json:"metadata,omitempty"`
-	RegisteredAt  time.Time         `json:"registeredAt"`
-	LastHeartbeat time.Time         `json:"lastHeartbeat"`
-	ActiveDevices int               `json:"activeDevices"`
-	UptimeSeconds int64             `json:"uptimeSeconds"`
-	Healthy       bool              `json:"healthy"`
+	InstanceID    string         `json:"instanceId"`
+	Protocol      string         `json:"protocol"`
+	Version       string         `json:"version"`
+	DownlinkURL   string         `json:"downlinkUrl"`
+	Metadata      models.JSONMap `json:"metadata,omitempty"`
+	RegisteredAt  time.Time      `json:"registeredAt"`
+	LastHeartbeat time.Time      `json:"lastHeartbeat"`
+	ActiveDevices int            `json:"activeDevices"`
+	UptimeSeconds int64          `json:"uptimeSeconds"`
+	Healthy       bool           `json:"healthy"`
 }
 
 // Registry tracks live gateways and routes downlinks to them. Gateway state is

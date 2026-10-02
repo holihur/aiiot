@@ -58,7 +58,7 @@ var _ access.Adapter = (*Adapter)(nil)
 
 func (a *Adapter) Name() string                    { return access.ProtocolCustomName }
 func (a *Adapter) OnUplink(h access.UplinkHandler) { a.uplink = h }
-func (a *Adapter) OnAuth(h access.AuthHandler)      { a.auth = h }
+func (a *Adapter) OnAuth(h access.AuthHandler)     { a.auth = h }
 
 func (a *Adapter) ActiveDevices() int {
 	a.mu.RLock()

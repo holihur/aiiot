@@ -27,10 +27,10 @@ type Options struct {
 	EnableWS   bool
 	// TLSAddr enables an MQTT-over-TLS listener; the workspace/tenant is
 	// derived from the TLS SNI (e.g. factory1.example.com -> factory1).
-	TLSAddr  string
-	TLSCert  string
-	TLSKey   string
-	Logger   *slog.Logger
+	TLSAddr string
+	TLSCert string
+	TLSKey  string
+	Logger  *slog.Logger
 }
 
 // Adapter is the MQTT access adapter.
@@ -63,7 +63,7 @@ var _ access.Adapter = (*Adapter)(nil)
 func (a *Adapter) Name() string { return access.ProtocolMQTTName }
 
 func (a *Adapter) OnUplink(h access.UplinkHandler) { a.uplink = h }
-func (a *Adapter) OnAuth(h access.AuthHandler)      { a.auth = h }
+func (a *Adapter) OnAuth(h access.AuthHandler)     { a.auth = h }
 
 // ActiveDevices reports the number of currently authenticated device sessions.
 func (a *Adapter) ActiveDevices() int { return int(atomic.LoadInt64(&a.active)) }

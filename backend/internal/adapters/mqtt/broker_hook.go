@@ -158,7 +158,8 @@ func tenantFromConn(c net.Conn) string {
 	return name
 }
 
-func deviceRef(resp *access.AuthResponse) access.DeviceRef {	return access.DeviceRef{
+func deviceRef(resp *access.AuthResponse) access.DeviceRef {
+	return access.DeviceRef{
 		WorkspaceKey: resp.WorkspaceKey,
 		ProductKey:   resp.ProductKey,
 		DeviceKey:    resp.DeviceKey,

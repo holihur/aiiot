@@ -71,6 +71,7 @@ func (h *Handlers) GetDeviceShadowHistory(c *gin.Context) {
 	}
 	ok(c, logs)
 }
+
 // ClearDeviceShadowDesired removes all desired keys.
 func (h *Handlers) ClearDeviceShadowDesired(c *gin.Context) {
 	id, valid := parseID(c, "id")

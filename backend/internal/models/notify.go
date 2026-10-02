@@ -23,17 +23,17 @@ func (NotifyChannel) TableName() string { return "notify_channels" }
 // NotificationLog records a delivery attempt.
 type NotificationLog struct {
 	Base
-	ProjectID uint    `gorm:"index" json:"projectId"`
-	ChannelID uint    `gorm:"index" json:"channelId"`
-	RuleID    *uint   `gorm:"index" json:"ruleId,omitempty"`
-	DeviceID  uint    `json:"deviceId"`
-	Success   bool    `json:"success"`
-	Suppressed bool   `json:"suppressed"`
-	Count     int     `gorm:"default:1" json:"count"`
-	Error     string  `gorm:"type:text" json:"error"`
-	Title     string  `gorm:"size:255" json:"title"`
-	Body      string  `gorm:"type:text" json:"body"`
-	Config    JSONMap `gorm:"type:jsonb" json:"-"`
+	ProjectID  uint    `gorm:"index" json:"projectId"`
+	ChannelID  uint    `gorm:"index" json:"channelId"`
+	RuleID     *uint   `gorm:"index" json:"ruleId,omitempty"`
+	DeviceID   uint    `json:"deviceId"`
+	Success    bool    `json:"success"`
+	Suppressed bool    `json:"suppressed"`
+	Count      int     `gorm:"default:1" json:"count"`
+	Error      string  `gorm:"type:text" json:"error"`
+	Title      string  `gorm:"size:255" json:"title"`
+	Body       string  `gorm:"type:text" json:"body"`
+	Config     JSONMap `gorm:"type:jsonb" json:"-"`
 }
 
 func (NotificationLog) TableName() string { return "notification_logs" }

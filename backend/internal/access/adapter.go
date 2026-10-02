@@ -60,14 +60,14 @@ type DeviceRef struct {
 
 // UplinkMessage is a normalized message travelling from a device to the core.
 type UplinkMessage struct {
-	Protocol  string         `json:"protocol"`
-	Device    DeviceRef      `json:"device"`
-	Kind      UplinkKind     `json:"kind"`
+	Protocol string     `json:"protocol"`
+	Device   DeviceRef  `json:"device"`
+	Kind     UplinkKind `json:"kind"`
 	// Identifier is the thing-model property/event/service identifier. It may
 	// be empty for KindPeer when the payload carries routing information.
-	Identifier string         `json:"identifier,omitempty"`
-	Payload    []byte         `json:"payload"`
-	Timestamp  time.Time      `json:"timestamp"`
+	Identifier string            `json:"identifier,omitempty"`
+	Payload    []byte            `json:"payload"`
+	Timestamp  time.Time         `json:"timestamp"`
 	Metadata   map[string]string `json:"metadata,omitempty"`
 }
 

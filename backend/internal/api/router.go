@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/aiiot/server/internal/metrics"
 	"github.com/aiiot/server/internal/middleware"
@@ -10,8 +11,10 @@ import (
 
 // NewRouter wires all HTTP routes.
 func NewRouter(h *Handlers) *gin.Engine {
+	loginRL := middleware.NewRateLimiter(time.Minute, 30)
+	registerRL := middleware.NewRateLimiter(time.Minute, 10)
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CORS(), metrics.HTTP())
+	r.Use(gin.Recovery(), middleware.CORS(h.CORSAllowed, h.AppEnv), metrics.HTTP())
 	r.MaxMultipartMemory = 8 << 20
 
 	r.GET("/healthz", func(c *gin.Context) {
@@ -24,8 +27,8 @@ func NewRouter(h *Handlers) *gin.Engine {
 	r.GET("/ota/firmware/:id", h.DownloadFirmware)
 
 	api := r.Group("/api/v1")
-	api.POST("/auth/register", h.Register)
-	api.POST("/auth/login", h.Login)
+	api.POST("/auth/register", middleware.RateLimit(registerRL, middleware.ClientKey), h.Register)
+	api.POST("/auth/login", middleware.RateLimit(loginRL, middleware.ClientKey), h.Login)
 	api.POST("/ingest/:productKey/:deviceKey", h.HTTPIngest)
 
 	auth := api.Group("", middleware.Auth(h.Tokens))

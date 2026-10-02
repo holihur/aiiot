@@ -34,6 +34,10 @@ func main() {
 	cfg := config.Load()
 	log := newLogger(cfg.LogLevel)
 	slog.SetDefault(log)
+	if err := cfg.Validate(); err != nil {
+		log.Error("unsafe configuration", "error", err)
+		os.Exit(1)
+	}
 
 	db, err := database.Connect(cfg.DB, cfg.AppEnv)
 	if err != nil {
@@ -167,6 +171,8 @@ func main() {
 		Log:              log,
 		Bus:              uplinkSub,
 		NATSSubject:      natsSubject,
+		CORSAllowed:      cfg.CORSAllowedOrigins,
+		AppEnv:           cfg.AppEnv,
 	}
 	router := api.NewRouter(handlers)
 	if api.RegisterStatic(router, cfg.WebDir) {

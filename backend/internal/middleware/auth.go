@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	CtxUserID    = "ctx_user_id"
-	CtxUsername  = "ctx_username"
+	CtxUserID     = "ctx_user_id"
+	CtxUsername   = "ctx_username"
 	CtxSystemRole = "ctx_system_role"
 )
 
@@ -100,12 +100,33 @@ func AdminAuth(tokens *auth.TokenService) gin.HandlerFunc {
 	}
 }
 
-// CORS is a permissive development CORS handler.
-func CORS() gin.HandlerFunc {
+// CORS adopts a permissive development policy when allowed is empty and env
+// is not production (reflects any origin with credentials). In production an
+// explicit allow-list is required for credentialed cross-origin requests;
+// without one, CORS headers are omitted so the SPA is expected to be served
+// from the same origin.
+func CORS(allowed []string, appEnv string) gin.HandlerFunc {
+	prod := appEnv == "production"
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
 		if origin == "" {
-			origin = "*"
+			c.Next()
+			return
+		}
+		allow := false
+		if len(allowed) > 0 {
+			for _, a := range allowed {
+				if a == origin {
+					allow = true
+					break
+				}
+			}
+		} else {
+			allow = !prod
+		}
+		if !allow {
+			c.Next()
+			return
 		}
 		c.Header("Access-Control-Allow-Origin", origin)
 		c.Header("Access-Control-Allow-Credentials", "true")

@@ -248,10 +248,10 @@ func (s *OTAService) advance(ctx context.Context, taskID uint) {
 	}
 
 	updates := map[string]any{
-		"succeeded":   succeeded,
-		"failed":      failed,
-		"in_progress": inProgress,
-		"total":       len(tds),
+		"succeeded":    succeeded,
+		"failed":       failed,
+		"in_progress":  inProgress,
+		"total":        len(tds),
 		"current_wave": task.CurrentWave,
 	}
 

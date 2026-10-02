@@ -13,7 +13,7 @@ import (
 type registerRequest struct {
 	Username    string `json:"username" binding:"required,min=3,max=64"`
 	Email       string `json:"email" binding:"required,email"`
-	Password    string `json:"password" binding:"required,min=6"`
+	Password    string `json:"password" binding:"required,min=8"`
 	DisplayName string `json:"displayName"`
 }
 
@@ -102,7 +102,7 @@ func (h *Handlers) Me(c *gin.Context) {
 
 type changePasswordRequest struct {
 	OldPassword string `json:"oldPassword" binding:"required"`
-	NewPassword string `json:"newPassword" binding:"required,min=6"`
+	NewPassword string `json:"newPassword" binding:"required,min=8"`
 }
 
 func (h *Handlers) ChangePassword(c *gin.Context) {

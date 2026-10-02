@@ -41,6 +41,10 @@ type Handlers struct {
 	Bus *bus.Subscriber
 	// NATSSubject is the uplink subject, used to break out bus counters.
 	NATSSubject string
+	// CORSAllowed is the explicit cross-origin allow-list (empty = dev policy).
+	CORSAllowed []string
+	// AppEnv selects dev/production behaviour (CORS, secrets).
+	AppEnv string
 }
 
 // dbTx is a short alias used inside transaction closures.

@@ -2,6 +2,7 @@ package config
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -36,6 +37,10 @@ type Config struct {
 	Telemetry TelemetryConfig
 	// NATS is the mandatory uplink bus between gateways and the core.
 	NATS bus.Config
+	// CORSAllowedOrigins is an explicit allow-list for credentialed browser
+	// requests (comma-separated, from CORS_ALLOWED_ORIGINS). Empty in
+	// production means no cross-origin credentials are granted.
+	CORSAllowedOrigins []string
 }
 
 type DBConfig struct {
@@ -132,6 +137,7 @@ func Load() *Config {
 			WriteBatchSize:  getInt("TELEMETRY_WRITE_BATCH_SIZE", 512),
 			WriteFlushEvery: getDur("TELEMETRY_FLUSH_INTERVAL", 2*time.Second),
 		},
+		CORSAllowedOrigins: splitList(getStr("CORS_ALLOWED_ORIGINS", "")),
 		NATS: bus.Config{
 			URL:      getStr("NATS_URL", "nats://127.0.0.1:4222"),
 			User:     getStr("NATS_USER", ""),
@@ -193,4 +199,40 @@ func getDur(key string, def time.Duration) time.Duration {
 		}
 	}
 	return def
+}
+
+// splitList splits a comma-separated environment value into trimmed entries.
+func splitList(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// DefaultSecrets are the weak demo credentials shipped in .env.example.
+const (
+	DefaultJWTSecret    = "change-me-in-production-please-32chars"
+	DefaultGatewayToken = "change-me-gateway-token"
+)
+
+// IsDefaultSecret reports whether the secret still holds the demo value.
+func IsDefaultSecret(v string) bool { return v == DefaultJWTSecret || v == DefaultGatewayToken }
+
+// Validate returns an error for unsafe production settings. The process must
+// refuse to start before any traffic is served.
+func (c *Config) Validate() error {
+	if c.AppEnv != "production" {
+		return nil
+	}
+	if IsDefaultSecret(c.JWTSecret) || len(c.JWTSecret) < 32 {
+		return errors.New("JWT_SECRET must be replaced by a random secret of at least 32 characters in production")
+	}
+	if IsDefaultSecret(c.Gateway.Token) || len(c.Gateway.Token) < 16 {
+		return errors.New("GATEWAY_TOKEN must be replaced by a random secret of at least 16 characters in production")
+	}
+	return nil
 }
