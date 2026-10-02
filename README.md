@@ -76,6 +76,11 @@ CEL-based rule engine.
 - **Replica-safe maintenance** — background jobs (partition/retention/rollup,
   offline sweep, dedup cleanup) run on every replica but are fenced by
   PostgreSQL advisory locks, so each job executes on exactly one replica.
+- **Replica-wide real-time events** — SSE events (telemetry + lifecycle) are
+  fanned out over a plain NATS subject (`aiiot.events`); every core replica
+  subscribes and forwards them to its local SSE hub, so multi-replica
+  deployments deliver the same live feed regardless of which replica ingested
+  the message.
 - **At-least-once ingestion with idempotency** — a redelivered NATS uplink is
   claimed in `ingest_dedup` before processing; duplicates are dropped (metrics:
   `aiiot_ingest_dedup_dropped_total`) without re-inserting telemetry or

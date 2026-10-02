@@ -50,6 +50,17 @@ export interface Product {
   thingModel?: ThingModel;
 }
 
+export interface ModelParam {
+  name: string;
+  dataType: string;
+  required?: boolean;
+  unit?: string;
+  min?: number;
+  max?: number;
+  enumValues?: string[];
+  description?: string;
+}
+
 export interface ThingModelElement {
   id?: number;
   thingModelId?: number;
@@ -57,6 +68,7 @@ export interface ThingModelElement {
   identifier: string;
   name?: string;
   dataType: string;
+  eventType?: string;
   accessMode?: string;
   unit?: string;
   min?: number | null;
@@ -71,6 +83,7 @@ export interface ThingModel {
   id?: number;
   productId: number;
   version: string;
+  status?: string;
   description?: string;
   elements: ThingModelElement[];
 }
@@ -282,6 +295,28 @@ export interface NotificationLog {
   createdAt: string;
 }
 
+export interface Alert {
+  id: number;
+  projectId: number;
+  ruleId: number;
+  deviceId: number;
+  deviceKey: string;
+  identifier?: string;
+  title: string;
+  level: "info" | "warning" | "critical";
+  status: "firing" | "acknowledged" | "resolved";
+  message?: string;
+  startsAt: string;
+  lastFiredAt: string;
+  fireCount: number;
+  resolvedAt?: string;
+  resolveReason?: string;
+  ackedAt?: string;
+  ackedBy?: number;
+  ruleName?: string;
+  createdAt: string;
+}
+
 export interface DeviceGroup {
   id: number;
   projectId: number;
@@ -482,6 +517,18 @@ export const api = {
   getThingModel: (productId: number) => get<ThingModel>(`/products/${productId}/thing-model`),
   putThingModel: (productId: number, b: { version: string; description?: string; elements: ThingModelElement[] }) =>
     put<ThingModel>(`/products/${productId}/thing-model`, b),
+  publishThingModel: (productId: number) =>
+    post<{ ok: boolean; version: string; status: string; snapshotId: number }>(
+      `/products/${productId}/thing-model/publish`,
+    ),
+  listThingModelVersions: (productId: number) =>
+    get<{ id: number; version: string; createdBy: number; publishedAt: string }[]>(
+      `/products/${productId}/thing-model/versions`,
+    ),
+  rollbackThingModelVersion: (productId: number, versionId: number) =>
+    post<{ ok: boolean; elements: number }>(
+      `/products/${productId}/thing-model/versions/${versionId}/rollback`,
+    ),
 
   listDevices: (projectId: number, filters?: { productId?: number; workspaceId?: number; keyword?: string }) => {
     const qs = new URLSearchParams();
@@ -614,6 +661,19 @@ export const api = {
   deleteChannel: (id: number) => del<{ ok: boolean }>(`/channels/${id}`),
   testChannel: (id: number) => post<{ ok: boolean }>(`/channels/${id}/test`),
   channelLogs: (id: number) => get<NotificationLog[]>(`/channels/${id}/logs`),
+  listAlerts: (projectId: number, opts?: { status?: string; deviceId?: number }) => {
+    const qs = new URLSearchParams();
+    if (opts?.status) qs.set("status", opts.status);
+    if (opts?.deviceId) qs.set("deviceId", String(opts.deviceId));
+    const q = qs.toString();
+    return get<{ items: Alert[]; counts: Record<string, number> }>(
+      `/projects/${projectId}/alerts${q ? `?${q}` : ""}`,
+    );
+  },
+  ackAlert: (id: number) => post<{ ok: boolean }>(`/alerts/${id}/ack`),
+  resolveAlert: (id: number, reason?: string) =>
+    post<{ ok: boolean }>(`/alerts/${id}/resolve${reason ? `?reason=${encodeURIComponent(reason)}` : ""}`),
+
 };
 
 // --- Administration (isolated audience) ----------------------------------

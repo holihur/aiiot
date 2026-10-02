@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Save, Trash2, Pencil, Upload } from "lucide-react";
+import { Download, Plus, Rocket, Save, Trash2, Pencil, Upload, History } from "lucide-react";
 import { toast } from "sonner";
-import { api, uploadFirmware, type ThingModelElement } from "@/lib/api";
+import { api, uploadFirmware, type ModelParam, type ThingModelElement } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth";
 import { ConfirmButton } from "@/components/ConfirmButton";
@@ -24,6 +24,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { formatTime } from "@/lib/utils";
 
 const dataTypes = ["int32", "int64", "float", "double", "bool", "text", "date", "enum", "json", "struct", "array"];
 const protocolVariant: Record<string, "success" | "warning" | "secondary"> = {
@@ -31,6 +33,125 @@ const protocolVariant: Record<string, "success" | "warning" | "secondary"> = {
   coap: "warning",
   custom: "secondary",
 };
+
+// specParams / setSpecParams manage service inputs / event fields stored in
+// the element's specs JSON (the backend passes them through).
+function specParams(el: ThingModelElement, key: string): ModelParam[] {
+  const v = el.specs?.[key];
+  return Array.isArray(v) ? (v as ModelParam[]) : [];
+}
+function setSpecParams(
+  el: ThingModelElement,
+  key: string,
+  items: ModelParam[],
+  setDraft: React.Dispatch<React.SetStateAction<ThingModelElement>>,
+) {
+  setDraft({ ...el, specs: { ...(el.specs ?? {}), [key]: items } });
+}
+
+function ParamEditor({ items, onItems }: { items: ModelParam[]; onItems: (a: ModelParam[]) => void }) {
+  const { t } = useI18n();
+  const update = (i: number, patch: Partial<ModelParam>) =>
+    onItems(items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
+  return (
+    <div className="space-y-2">
+      {items.map((p, i) => (
+        <div key={i} className="space-y-2 rounded-md border p-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_9rem_auto_auto] sm:items-center">
+            <Input placeholder={t("product.paramName")} value={p.name} onChange={(e) => update(i, { name: e.target.value })} />
+            <Select value={p.dataType} onValueChange={(v) => update(i, { dataType: v })}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {dataTypes.map((dt) => (
+                  <SelectItem key={dt} value={dt}>
+                    {dt}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Switch checked={!!p.required} onCheckedChange={(v) => update(i, { required: v })} />
+              {t("product.paramRequired")}
+            </label>
+            <Button variant="ghost" size="icon" onClick={() => onItems(items.filter((_, idx) => idx !== i))}>
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          </div>
+          {p.dataType === "enum" && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] text-muted-foreground">{t("product.enumValues")}</span>
+              <Input
+                className="h-8 flex-1 min-w-[10rem] font-mono text-xs"
+                placeholder="a,b,c"
+                value={(p.enumValues ?? []).join(", ")}
+                onChange={(e) =>
+                  update(i, {
+                    enumValues: e.target.value
+                      .split(",")
+                      .map((x) => x.trim())
+                      .filter(Boolean),
+                  })
+                }
+              />
+            </div>
+          )}
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-0.5">
+              <span className="text-[11px] text-muted-foreground">{t("product.unit")}</span>
+              <Input
+                className="h-8 w-20"
+                value={p.unit ?? ""}
+                onChange={(e) => update(i, { unit: e.target.value })}
+              />
+            </div>
+            <div className="space-y-0.5">
+              <span className="text-[11px] text-muted-foreground">{t("product.min")}</span>
+              <Input
+                className="h-8 w-24"
+                type="number"
+                value={p.min ?? ""}
+                onChange={(e) => update(i, { min: e.target.value === "" ? undefined : Number(e.target.value) })}
+              />
+            </div>
+            <div className="space-y-0.5">
+              <span className="text-[11px] text-muted-foreground">{t("product.max")}</span>
+              <Input
+                className="h-8 w-24"
+                type="number"
+                value={p.max ?? ""}
+                onChange={(e) => update(i, { max: e.target.value === "" ? undefined : Number(e.target.value) })}
+              />
+            </div>
+          </div>
+        </div>
+      ))}
+      <Button size="sm" variant="outline" onClick={() => onItems([...items, { name: "", dataType: "double", required: true }])}>
+        <Plus className="h-4 w-4" /> {t("product.addParam")}
+      </Button>
+    </div>
+  );
+}
+
+function EnumEditor({ values, onChange }: { values: string[]; onChange: (v: string[]) => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="space-y-2">
+      {values.map((v, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <Input value={v} onChange={(e) => onChange(values.map((x, idx) => (idx === i ? e.target.value : x)))} />
+          <Button variant="ghost" size="icon" onClick={() => onChange(values.filter((_, idx) => idx !== i))}>
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        </div>
+      ))}
+      <Button size="sm" variant="outline" onClick={() => onChange([...values, ""])}>
+        <Plus className="h-4 w-4" /> {t("product.addEnum")}
+      </Button>
+    </div>
+  );
+}
 
 const emptyElement: ThingModelElement = {
   type: "property",
@@ -136,6 +257,54 @@ export default function ProductDetailPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const [versionOpen, setVersionOpen] = useState(false);
+  const versions = useQuery({
+    queryKey: ["thingModelVersions", productId],
+    queryFn: () => api.listThingModelVersions(productId),
+    enabled: versionOpen,
+  });
+  const publishModel = useMutation({
+    mutationFn: () => api.publishThingModel(productId),
+    onSuccess: (r) => {
+      toast.success(`Published v${r.version}`);
+      void qc.invalidateQueries({ queryKey: ["thingModel", productId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const rollbackModel = useMutation({
+    mutationFn: (vid: number) => api.rollbackThingModelVersion(productId, vid),
+    onSuccess: () => {
+      toast.success("Rolled back to snapshot");
+      setVersionOpen(false);
+      void qc.invalidateQueries({ queryKey: ["thingModel", productId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const importInput = useRef<HTMLInputElement>(null);
+  function exportThingModel() {
+    const blob = new Blob([JSON.stringify({ version, elements }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `thing-model-${product.data?.key ?? productId}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+  function importThingModel(file: File) {
+    void file.text().then((text) => {
+      try {
+        const parsed = JSON.parse(text);
+        if (!Array.isArray(parsed.elements)) throw new Error("elements[] missing");
+        setElements(parsed.elements as ThingModelElement[]);
+        if (parsed.version) setVersion(String(parsed.version));
+        setDirty(true);
+        toast.success("Thing model imported from JSON — save to persist");
+      } catch (e) {
+        toast.error((e as Error).message);
+      }
+    });
+  }
+
   const grouped = useMemo(() => {
     const order = ["property", "service", "event"];
     return order.map((t) => ({ type: t, items: elements.filter((e) => e.type === t) }));
@@ -143,13 +312,20 @@ export default function ProductDetailPage() {
 
   function openAdd(type: string) {
     setEditingIndex(null);
-    setDraft({ ...emptyElement, type: type as ThingModelElement["type"] });
+    const base: ThingModelElement = { ...emptyElement, type: type as ThingModelElement["type"], specs: {} };
+    if (type === "service") base.specs = { inputs: [] };
+    else if (type === "event") base.specs = { fields: [] };
+    setDraft(base);
     setOpen(true);
   }
 
   function openEdit(index: number) {
     setEditingIndex(index);
-    setDraft({ ...elements[index] });
+    const el = elements[index];
+    const specs: Record<string, unknown> = { ...(el.specs ?? {}) };
+    if (el.type === "service" && !specs.inputs) specs.inputs = [];
+    if (el.type === "event" && !specs.fields) specs.fields = [];
+    setDraft({ ...el, specs });
     setOpen(true);
   }
 
@@ -253,10 +429,93 @@ export default function ProductDetailPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={versionOpen} onOpenChange={setVersionOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("product.versions")}</DialogTitle>
+            <DialogDescription>{t("product.versionsDesc")}</DialogDescription>
+          </DialogHeader>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t("product.version")}</TableHead>
+                <TableHead>{t("audit.time")}</TableHead>
+                <TableHead className="w-24 text-right">{t("common.actions")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(versions.data ?? []).length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={3} className="py-8 text-center text-muted-foreground">
+                    {t("product.noVersions")}
+                  </TableCell>
+                </TableRow>
+              )}
+              {(versions.data ?? []).map((v) => (
+                <TableRow key={v.id}>
+                  <TableCell className="font-mono">{v.version}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{formatTime(v.publishedAt)}</TableCell>
+                  <TableCell className="text-right">
+                    {canManage && (
+                      <ConfirmButton
+                        title={t("product.rollbackTitle")}
+                        description={t("product.rollbackDesc", { version: v.version })}
+                        confirmLabel={t("common.delete")}
+                        onConfirm={() => rollbackModel.mutateAsync(v.id)}
+                      >
+                        <Button size="sm" variant="outline">
+                          {t("product.rollback")}
+                        </Button>
+                      </ConfirmButton>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </DialogContent>
+      </Dialog>
+
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t("product.thingModel")}</CardTitle>
-          <CardDescription>{t("product.thingModelDesc")}</CardDescription>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              {t("product.thingModel")}
+              <Badge variant={thingModel.data?.status === "published" ? "success" : "secondary"}>
+                {thingModel.data?.status ?? "draft"}
+              </Badge>
+            </CardTitle>
+            <CardDescription>{t("product.thingModelDesc")}</CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" onClick={exportThingModel}>
+              <Download className="h-4 w-4" /> {t("product.export")}
+            </Button>
+            {canManage && (
+              <>
+                <Button size="sm" variant="outline" onClick={() => importInput.current?.click()}>
+                  <Upload className="h-4 w-4" /> {t("product.import")}
+                </Button>
+                <input
+                  ref={importInput}
+                  type="file"
+                  accept="application/json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) importThingModel(f);
+                    e.target.value = "";
+                  }}
+                />
+                <Button size="sm" variant="outline" onClick={() => setVersionOpen(true)}>
+                  <History className="h-4 w-4" /> {t("product.versions")}
+                </Button>
+                <Button size="sm" onClick={() => publishModel.mutate()} disabled={publishModel.isPending}>
+                  <Rocket className="h-4 w-4" /> {t("product.publish")}
+                </Button>
+              </>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -298,6 +557,7 @@ export default function ProductDetailPage() {
                       <TableHead className="whitespace-nowrap">{t("common.type")}</TableHead>
                       <TableHead className="whitespace-nowrap">{t("product.access")}</TableHead>
                       <TableHead className="whitespace-nowrap">{t("product.unit")}</TableHead>
+                      <TableHead className="whitespace-nowrap">{t("product.paramsColumn")}</TableHead>
                       <TableHead className="whitespace-nowrap">{t("product.range")}</TableHead>
                       <TableHead className="w-24 whitespace-nowrap text-right">{t("common.actions")}</TableHead>
                     </TableRow>
@@ -305,7 +565,7 @@ export default function ProductDetailPage() {
                   <TableBody>
                     {group.items.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
+                        <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
                           {t("product.emptyHint", { type: t(`product.group_${group.type}`) })}
                         </TableCell>
                       </TableRow>
@@ -319,6 +579,13 @@ export default function ProductDetailPage() {
                           <TableCell className="whitespace-nowrap">{el.dataType}</TableCell>
                           <TableCell className="whitespace-nowrap">{el.type === "property" ? el.accessMode : "-"}</TableCell>
                           <TableCell className="whitespace-nowrap">{el.unit || "-"}</TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {el.type === "service"
+                              ? String(specParams(el, "inputs").length)
+                              : el.type === "event"
+                                ? String(specParams(el, "fields").length)
+                                : "-"}
+                          </TableCell>
                           <TableCell className="whitespace-nowrap">
                             {el.min != null || el.max != null ? `${el.min ?? "-"} ~ ${el.max ?? "-"}` : "-"}
                           </TableCell>
@@ -435,7 +702,16 @@ export default function ProductDetailPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>{t("common.type")}</Label>
-              <Select value={draft.type} onValueChange={(v) => setDraft({ ...draft, type: v as ThingModelElement["type"] })}>
+              <Select
+                value={draft.type}
+                onValueChange={(v) => {
+                  const t = v as ThingModelElement["type"];
+                  const specs: Record<string, unknown> = { ...(draft.specs ?? {}) };
+                  if (t === "service" && !specs.inputs) specs.inputs = [];
+                  if (t === "event" && !specs.fields) specs.fields = [];
+                  setDraft({ ...draft, type: t, specs });
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -469,6 +745,32 @@ export default function ProductDetailPage() {
                 </SelectContent>
               </Select>
             </div>
+            {draft.type === "event" && (
+              <div className="space-y-2">
+                <Label>{t("product.eventType")}</Label>
+                <Select value={draft.eventType ?? "info"} onValueChange={(v) => setDraft({ ...draft, eventType: v })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="info">info</SelectItem>
+                    <SelectItem value="alarm">alarm</SelectItem>
+                    <SelectItem value="fault">fault</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {draft.dataType === "enum" && (
+              <div className="space-y-2 sm:col-span-2">
+                <Label>{t("product.enumValues")}</Label>
+                <EnumEditor
+                  values={Array.isArray(draft.specs?.enumValues) ? (draft.specs!.enumValues as unknown as string[]) : []}
+                  onChange={(vals) =>
+                    setDraft({ ...draft, specs: { ...(draft.specs ?? {}), enumValues: vals } })
+                  }
+                />
+              </div>
+            )}
             {draft.type === "property" && (
               <div className="space-y-2">
                 <Label>{t("product.accessMode")}</Label>
@@ -505,6 +807,24 @@ export default function ProductDetailPage() {
               />
             </div>
           </div>
+          {draft.type === "service" && (
+            <div className="mt-4 space-y-2">
+              <Label>{t("product.serviceInputs")}</Label>
+              <ParamEditor items={specParams(draft, "inputs")} onItems={(items) => setSpecParams(draft, "inputs", items, setDraft)} />
+            </div>
+          )}
+          {draft.type === "service" && (
+            <div className="mt-4 space-y-2">
+              <Label>{t("product.serviceOutputs")}</Label>
+              <ParamEditor items={specParams(draft, "outputs")} onItems={(items) => setSpecParams(draft, "outputs", items, setDraft)} />
+            </div>
+          )}
+          {draft.type === "event" && (
+            <div className="mt-4 space-y-2">
+              <Label>{t("product.eventFields")}</Label>
+              <ParamEditor items={specParams(draft, "fields")} onItems={(items) => setSpecParams(draft, "fields", items, setDraft)} />
+            </div>
+          )}
           <div className="space-y-2">
             <Label>{t("common.description")}</Label>
             <Textarea value={draft.description ?? ""} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />

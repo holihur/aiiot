@@ -28,6 +28,7 @@ type IngestService struct {
 	shadow    *ShadowService
 	ota       *OTAService
 	hub       *Hub
+	evBus     EventBus // NATS fan-out across replicas (SSE); nil = local only
 	log       *slog.Logger
 
 	offlineAfter time.Duration
@@ -57,6 +58,28 @@ func NewIngestService(db *gorm.DB, resolver *Resolver, telemetry *TelemetryServi
 		log:          log,
 		offlineAfter: offlineAfter,
 		types:        map[uint]thingTypes{},
+	}
+}
+
+// SetEventBus wires the cross-replica event bus. nil disables it (local only).
+func (s *IngestService) SetEventBus(eb EventBus) { s.evBus = eb }
+
+// emit forwards an event to every core replica via NATS (which each replica
+// re-publishes to its local SSE hub). When the bus is unavailable it falls
+// back to the local hub so a single replica still works.
+func (s *IngestService) emit(e Event) {
+	if s.evBus != nil {
+		data, err := json.Marshal(e)
+		if err == nil {
+			if err := s.evBus.Publish(EventSubject, data); err != nil {
+				s.log.Warn("publish event failed", "error", err)
+				return
+			}
+			return
+		}
+	}
+	if s.hub != nil {
+		s.hub.Publish(e)
 	}
 }
 
@@ -205,13 +228,11 @@ func (s *IngestService) handleProperty(ctx context.Context, dc *DeviceContext, m
 	if err := s.telemetry.Write(ctx, samples); err != nil {
 		return err
 	}
-	if s.hub != nil {
-		for identifier, v := range params {
-			s.hub.Publish(Event{
-				Type: "telemetry", ProjectID: dc.Project.ID, DeviceID: dc.Device.ID,
-				DeviceKey: dc.Device.Key, Identifier: identifier, Value: v, Time: msg.Timestamp,
-			})
-		}
+	for identifier, v := range params {
+		s.emit(Event{
+			Type: "telemetry", ProjectID: dc.Project.ID, DeviceID: dc.Device.ID,
+			DeviceKey: dc.Device.Key, Identifier: identifier, Value: v, Time: msg.Timestamp,
+		})
 	}
 	// Keep the device shadow's reported state in sync with telemetry.
 	if s.shadow != nil {
@@ -275,13 +296,11 @@ func (s *IngestService) handleLifecycle(ctx context.Context, dc *DeviceContext, 
 	if err := s.db.WithContext(ctx).Model(&models.Device{}).Where("id = ?", dc.Device.ID).Updates(updates).Error; err != nil {
 		return err
 	}
-	if s.hub != nil {
-		online := state == access.StateOnline
-		s.hub.Publish(Event{
-			Type: "lifecycle", ProjectID: dc.Project.ID, DeviceID: dc.Device.ID,
-			DeviceKey: dc.Device.Key, Online: &online, Time: now,
-		})
-	}
+	online := state == access.StateOnline
+	s.emit(Event{
+		Type: "lifecycle", ProjectID: dc.Project.ID, DeviceID: dc.Device.ID,
+		DeviceKey: dc.Device.Key, Online: &online, Time: now,
+	})
 
 	// Journal the transition as an event so the device timeline can show
 	// when the device came online / went offline.

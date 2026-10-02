@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BellRing, History, Plus, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type NotifyChannel } from "@/lib/api";
+import { api, type Alert as AlertItem, type NotifyChannel } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ProjectNav } from "@/components/ProjectNav";
 import { ConfirmButton } from "@/components/ConfirmButton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProjectRole } from "@/lib/useProjectRole";
 import { formatTime } from "@/lib/utils";
 
@@ -33,6 +34,28 @@ export default function AlertsPage() {
   const qc = useQueryClient();
   const { t } = useI18n();
   const { canWrite, canAdmin } = useProjectRole(projectId);
+  const [alertStatus, setAlertStatus] = useState<string>("all");
+  const alerts = useQuery({
+    queryKey: ["alerts", projectId, alertStatus],
+    queryFn: () => api.listAlerts(projectId, { status: alertStatus === "all" ? undefined : alertStatus }),
+    refetchInterval: 5000,
+  });
+  const ackAlert = useMutation({
+    mutationFn: (id: number) => api.ackAlert(id),
+    onSuccess: () => {
+      toast.success("Alert acknowledged");
+      void qc.invalidateQueries({ queryKey: ["alerts", projectId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const resolveAlert = useMutation({
+    mutationFn: (id: number) => api.resolveAlert(id),
+    onSuccess: () => {
+      toast.success("Alert resolved");
+      void qc.invalidateQueries({ queryKey: ["alerts", projectId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
   const { data: channels, isLoading } = useQuery({
     queryKey: ["channels", projectId],
     queryFn: () => api.listChannels(projectId),
@@ -146,6 +169,102 @@ export default function AlertsPage() {
 
       <ProjectNav projectId={projectId} />
 
+      <Tabs defaultValue="alerts">
+        <TabsList>
+          <TabsTrigger value="alerts">{t("alerts.tabAlerts")}</TabsTrigger>
+          <TabsTrigger value="channels">{t("alerts.tabChannels")}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="alerts" className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            {alerts.data?.counts?.firing != null && (
+              <Badge variant="destructive">{t("alerts.firing")}: {alerts.data.counts.firing}</Badge>
+            )}
+            {alerts.data?.counts?.acknowledged != null && (
+              <Badge variant="warning">{t("alerts.acknowledged")}: {alerts.data.counts.acknowledged}</Badge>
+            )}
+            {alerts.data?.counts?.resolved != null && (
+              <Badge variant="secondary">{t("alerts.resolved")}: {alerts.data.counts.resolved}</Badge>
+            )}
+            <Select value={alertStatus} onValueChange={setAlertStatus}>
+              <SelectTrigger className="ml-auto w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("alerts.all")}</SelectItem>
+                <SelectItem value="firing">{t("alerts.firing")}</SelectItem>
+                <SelectItem value="acknowledged">{t("alerts.acknowledged")}</SelectItem>
+                <SelectItem value="resolved">{t("alerts.resolved")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Card>
+            <CardContent className="pt-5">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("audit.time")}</TableHead>
+                    <TableHead>{t("alerts.alert")}</TableHead>
+                    <TableHead>{t("devices.titleSingle")}</TableHead>
+                    <TableHead>{t("common.identifier")}</TableHead>
+                    <TableHead>{t("alerts.level")}</TableHead>
+                    <TableHead>{t("alerts.status")}</TableHead>
+                    <TableHead>{t("alerts.fireCount")}</TableHead>
+                    <TableHead className="w-28 text-right">{t("common.actions")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(alerts.data?.items ?? []).length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
+                        {t("alerts.noAlerts")}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {(alerts.data?.items ?? []).map((a: AlertItem) => (
+                    <TableRow key={a.id}>
+                      <TableCell className="whitespace-nowrap text-xs">{formatTime(a.startsAt)}</TableCell>
+                      <TableCell>
+                        <div className="font-medium">{a.title}</div>
+                        {a.resolveReason && <div className="text-xs text-muted-foreground">{a.resolveReason}</div>}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{a.deviceKey}</TableCell>
+                      <TableCell className="font-mono text-xs">{a.identifier || "-"}</TableCell>
+                      <TableCell>
+                        <Badge variant={a.level === "critical" ? "destructive" : a.level === "warning" ? "warning" : "secondary"}>
+                          {a.level}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={a.status === "firing" ? "destructive" : a.status === "acknowledged" ? "warning" : "secondary"}>
+                          {a.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs">{a.fireCount}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-1 whitespace-nowrap">
+                          {a.status === "firing" && (
+                            <Button size="sm" variant="outline" onClick={() => ackAlert.mutate(a.id)}>
+                              {t("alerts.ack")}
+                            </Button>
+                          )}
+                          {a.status !== "resolved" && (
+                            <Button size="sm" variant="ghost" onClick={() => resolveAlert.mutate(a.id)}>
+                              {t("alerts.resolve")}
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="channels" className="space-y-4">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -222,6 +341,8 @@ export default function AlertsPage() {
           </Table>
         </CardContent>
       </Card>
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={!!logChannel} onOpenChange={(o) => !o && setLogChannel(null)}>
         <DialogContent className="max-w-2xl">

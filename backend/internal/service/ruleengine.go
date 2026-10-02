@@ -42,6 +42,7 @@ type RuleEngine struct {
 	shadow   *ShadowService
 	resolver *Resolver
 	notifier *Notifier
+	alerter  *Alerter
 	log      *slog.Logger
 	env      *cel.Env
 	client   *http.Client
@@ -59,7 +60,7 @@ type compiledRule struct {
 }
 
 // NewRuleEngine builds the CEL environment shared by all rules.
-func NewRuleEngine(db *gorm.DB, downlink *DownlinkService, shadow *ShadowService, resolver *Resolver, notifier *Notifier, log *slog.Logger) (*RuleEngine, error) {
+func NewRuleEngine(db *gorm.DB, downlink *DownlinkService, shadow *ShadowService, resolver *Resolver, notifier *Notifier, alerter *Alerter, log *slog.Logger) (*RuleEngine, error) {
 	env, err := cel.NewEnv(
 		cel.Variable("project_id", cel.IntType),
 		cel.Variable("workspace_id", cel.IntType),
@@ -83,6 +84,7 @@ func NewRuleEngine(db *gorm.DB, downlink *DownlinkService, shadow *ShadowService
 		shadow:   shadow,
 		resolver: resolver,
 		notifier: notifier,
+		alerter:  alerter,
 		log:      log,
 		env:      env,
 		client:   &http.Client{Timeout: 10 * time.Second},
@@ -157,7 +159,19 @@ func (e *RuleEngine) Evaluate(ctx context.Context, ev *RuleEvent) {
 		}
 		matched, _ := out.Value().(bool)
 		if !matched {
+			// A telemetry condition that no longer holds auto-resolves the
+			// open alert for this rule + device.
+			if e.alerter != nil && cr.rule.TriggerType == models.TriggerTelemetry && ev.DeviceID != 0 {
+				if err := e.alerter.ResolveIf(ctx, cr.rule, ev); err != nil {
+					e.log.Warn("resolve alert failed", "rule", cr.rule.ID, "error", err)
+				}
+			}
 			continue
+		}
+		if e.alerter != nil && ev.DeviceID != 0 {
+			if err := e.alerter.Raise(ctx, cr.rule, ev); err != nil {
+				e.log.Warn("raise alert failed", "rule", cr.rule.ID, "error", err)
+			}
 		}
 		metrics.ObserveRuleTrigger(cr.rule.Name)
 		results, actionErr := e.runActions(ctx, cr.rule, ev, activation)

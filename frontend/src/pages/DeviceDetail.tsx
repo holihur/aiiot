@@ -12,7 +12,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { api, type LatestValue, type TelemetryPoint, type TimelineItem } from "@/lib/api";
+import { api, type LatestValue, type ModelParam, type TelemetryPoint, type TimelineItem } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useEventStream } from "@/lib/useEventStream";
 import { ConnectDialog } from "@/components/ConnectDialog";
@@ -35,6 +35,22 @@ function valueOf(v: LatestValue): string {
   if (v.strValue != null) return v.strValue;
   if (v.jsonValue != null) return JSON.stringify(v.jsonValue);
   return "-";
+}
+
+function coerceValue(dataType: string, raw: string): unknown {
+  if (raw === "") return "";
+  switch (dataType) {
+    case "int32":
+    case "int64":
+      return Number.parseInt(raw, 10) || 0;
+    case "float":
+    case "double":
+      return Number(raw) || 0;
+    case "bool":
+      return raw === "true";
+    default:
+      return raw;
+  }
 }
 
 const dotClass: Record<string, string> = {
@@ -154,13 +170,28 @@ export default function DeviceDetailPage() {
   const [commandKind, setCommandKind] = useState("property");
   const [commandIdentifier, setCommandIdentifier] = useState("");
   const [commandPayload, setCommandPayload] = useState('{"temperature": 30}');
+  const [serviceIndex, setServiceIndex] = useState("");
+  const [serviceForm, setServiceForm] = useState<Record<string, unknown>>({});
+  const thingModel = useQuery({
+    queryKey: ["thingModel", device.data?.productId],
+    queryFn: () => api.getThingModel(device.data!.productId!),
+    enabled: !!device.data?.productId,
+  });
+  const services = (thingModel.data?.elements ?? []).filter((e) => e.type === "service");
+  const serviceInputs =
+    (thingModel.data?.elements ?? []).find((e) => e.type === "service" && e.identifier === serviceIndex)?.specs
+      ?.inputs as ModelParam[] | undefined;
 
   const sendCommand = useMutation({
     mutationFn: () =>
       api.command(deviceId, {
         kind: commandKind,
-        identifier: commandIdentifier || undefined,
-        payload: JSON.parse(commandPayload || "{}"),
+        identifier:
+          commandKind === "service_call" && serviceIndex ? serviceIndex : commandIdentifier || undefined,
+        payload:
+          commandKind === "service_call" && serviceIndex
+            ? serviceForm
+            : JSON.parse(commandPayload || "{}"),
       }),
     onSuccess: () => {
       toast.success("Command sent to gateway");
@@ -463,15 +494,89 @@ export default function DeviceDetailPage() {
                     </SelectContent>
                   </Select>
                 </div>
+                {commandKind === "service_call" ? (
+                  <div className="space-y-2">
+                    <Label>{t("device.serviceIdentifier")}</Label>
+                    <Select
+                      value={serviceIndex}
+                      onValueChange={(v) => {
+                        setServiceIndex(v);
+                        setServiceForm({});
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={t("device.selectService")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {services.map((sv) => (
+                          <SelectItem key={sv.identifier} value={sv.identifier}>
+                            {sv.name || sv.identifier}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>{t("common.identifier")}</Label>
+                    <Input value={commandIdentifier} onChange={(e) => setCommandIdentifier(e.target.value)} />
+                  </div>
+                )}
+              </div>
+
+              {commandKind === "service_call" ? (
+                (serviceInputs ?? []).length > 0 ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      {t("device.serviceParams")} ({(serviceInputs ?? []).filter((p) => p.required).length}/{serviceInputs?.length ?? 0})
+                    </div>
+                    {(serviceInputs ?? []).map((p) => (
+                      <div key={p.name} className="space-y-1.5">
+                        <Label className="capitalize">
+                          {p.name}
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">
+                            {p.dataType}
+                            {p.required ? " *" : ""}
+                          </span>
+                        </Label>
+                        {p.dataType === "bool" ? (
+                          <Switch
+                            checked={!!serviceForm[p.name]}
+                            onCheckedChange={(v) => setServiceForm({ ...serviceForm, [p.name]: v })}
+                          />
+                        ) : (
+                          <Input
+                            value={String(serviceForm[p.name] ?? "")}
+                            placeholder={p.dataType}
+                            onChange={(e) =>
+                              setServiceForm({
+                                ...serviceForm,
+                                [p.name]: coerceValue(p.dataType, e.target.value),
+                              })
+                            }
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>{t("devices.payload")}</Label>
+                    <Textarea
+                      className="font-mono"
+                      rows={6}
+                      value={commandPayload}
+                      onChange={(e) => setCommandPayload(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">{t("device.serviceParamsHint")}</p>
+                  </div>
+                )
+              ) : (
                 <div className="space-y-2">
-                  <Label>{t("common.identifier")}</Label>
-                  <Input value={commandIdentifier} onChange={(e) => setCommandIdentifier(e.target.value)} />
+                  <Label>{t("devices.payload")}</Label>
+                  <Textarea className="font-mono" rows={6} value={commandPayload} onChange={(e) => setCommandPayload(e.target.value)} />
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label>{t("devices.payload")}</Label>
-                <Textarea className="font-mono" rows={6} value={commandPayload} onChange={(e) => setCommandPayload(e.target.value)} />
-              </div>
+              )}
               <Button onClick={() => sendCommand.mutate()} disabled={sendCommand.isPending}>
                 <Send className="h-4 w-4" /> {t("device.sendCommand")}
               </Button>

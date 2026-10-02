@@ -5,6 +5,16 @@ import (
 	"time"
 )
 
+// EventSubject is the NATS subject that carries real-time events across core
+// replicas. Each replica subscribes and re-publishes to its local SSE hub, so
+// multi-replica deployments see the same live feed.
+const EventSubject = "aiiot.events"
+
+// EventBus publishes real-time events. *nats.Conn satisfies it.
+type EventBus interface {
+	Publish(subject string, data []byte) error
+}
+
 // Event is a real-time notification pushed to connected UIs over SSE.
 type Event struct {
 	Type       string    `json:"type"` // telemetry | lifecycle

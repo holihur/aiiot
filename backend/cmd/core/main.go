@@ -26,6 +26,7 @@ import (
 	"github.com/aiiot/server/internal/metrics"
 	"github.com/aiiot/server/internal/models"
 	"github.com/aiiot/server/internal/service"
+	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
 )
 
@@ -54,10 +55,11 @@ func main() {
 	shadow := service.NewShadowService(db, downlink, log)
 	ota := service.NewOTAService(db, downlink, resolver, cfg.OTA, log)
 	notifier := service.NewNotifier(db, log)
+	alerter := service.NewAlerter(db, log)
 	settings := service.NewSettings(db)
 	hub := service.NewHub()
 
-	rules, err := service.NewRuleEngine(db, downlink, shadow, resolver, notifier, log)
+	rules, err := service.NewRuleEngine(db, downlink, shadow, resolver, notifier, alerter, log)
 	if err != nil {
 		log.Error("rule engine init failed", "error", err)
 		os.Exit(1)
@@ -84,6 +86,27 @@ func main() {
 
 	// NATS is a mandatory platform component: the core consumes device uplinks
 	// from the JetStream stream via a durable, queue-grouped consumer.
+	// Real-time event bus: every replica subscribes to aiiot.events and
+	// forwards events to its local SSE hub, so multi-replica deployments show
+	// the same live feed. A plain (non-JetStream) fan-out connection is used.
+	evConn, err := bus.NewEventConn(cfg.NATS)
+	if err != nil {
+		log.Warn("nats event bus unavailable; SSE limited to this replica", "error", err)
+	} else {
+		defer evConn.Close()
+		ingest.SetEventBus(evConn)
+		if _, err := evConn.Subscribe(service.EventSubject, func(m *nats.Msg) {
+			var ev service.Event
+			if err := json.Unmarshal(m.Data, &ev); err != nil {
+				log.Warn("event decode failed", "error", err)
+				return
+			}
+			hub.Publish(ev)
+		}); err != nil {
+			log.Warn("subscribe event subject failed", "error", err)
+		}
+	}
+
 	natsSubject := cfg.NATS.Subject
 	if natsSubject == "" {
 		natsSubject = bus.DefaultSubject

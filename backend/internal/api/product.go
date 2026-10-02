@@ -1,8 +1,10 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aiiot/server/internal/middleware"
 	"github.com/aiiot/server/internal/models"
@@ -258,6 +260,7 @@ type elementRequest struct {
 	Identifier  string         `json:"identifier" binding:"required,min=1,max=128"`
 	Name        string         `json:"name"`
 	DataType    string         `json:"dataType" binding:"required"`
+	EventType   string         `json:"eventType"` // info | alarm | fault (events)
 	AccessMode  string         `json:"accessMode"`
 	Unit        string         `json:"unit"`
 	Min         *float64       `json:"min"`
@@ -293,6 +296,7 @@ func (h *Handlers) CreateElement(c *gin.Context) {
 		Identifier:   strings.TrimSpace(req.Identifier),
 		Name:         req.Name,
 		DataType:     req.DataType,
+		EventType:    req.EventType,
 		AccessMode:   req.AccessMode,
 		Unit:         req.Unit,
 		Min:          req.Min,
@@ -344,6 +348,7 @@ func (h *Handlers) UpdateElement(c *gin.Context) {
 	el.Identifier = strings.TrimSpace(req.Identifier)
 	el.Name = req.Name
 	el.DataType = req.DataType
+	el.EventType = req.EventType
 	el.AccessMode = req.AccessMode
 	el.Unit = req.Unit
 	el.Min = req.Min
@@ -382,4 +387,160 @@ func (h *Handlers) DeleteElement(c *gin.Context) {
 		return
 	}
 	ok(c, gin.H{"ok": true})
+}
+
+// --- thing-model lifecycle: publish / versions / rollback ------------------
+
+// PublishThingModel validates that the thing model has at least one property,
+// one service and one event, snapshots it, and marks it published.
+func (h *Handlers) PublishThingModel(c *gin.Context) {
+	productID, valid := parseID(c, "id")
+	if !valid {
+		return
+	}
+	product, allowed := h.loadProductManage(c, productID)
+	if !allowed {
+		return
+	}
+	var tm models.ThingModel
+	if err := h.DB.WithContext(c).Where("product_id = ?", product.ID).First(&tm).Error; err != nil {
+		fail(c, http.StatusNotFound, "thing model not found")
+		return
+	}
+	var els []models.ThingModelElement
+	h.DB.WithContext(c).Where("thing_model_id = ?", tm.ID).Find(&els)
+	counts := map[string]int{}
+	for _, e := range els {
+		counts[e.Type]++
+	}
+	need := []string{models.ElementProperty, models.ElementService, models.ElementEvent}
+	var missing []string
+	for _, t := range need {
+		if counts[t] == 0 {
+			missing = append(missing, t)
+		}
+	}
+	if len(missing) > 0 {
+		fail(c, http.StatusBadRequest, "thing model unusable: missing "+strings.Join(missing, ", ")+" — add at least one of each")
+		return
+	}
+	payload, err := json.Marshal(els)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var lst models.JSONList
+	if err := json.Unmarshal(payload, &lst); err != nil {
+		fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	now := time.Now().UTC()
+	snapshot := models.ThingModelVersion{
+		ThingModelID: tm.ID,
+		Version:      tm.Version,
+		Payload:      lst,
+		CreatedBy:    middleware.UserID(c),
+		PublishedAt:  now,
+	}
+	if err := h.DB.WithContext(c).Transaction(func(tx dbTx) error {
+		if err := tx.Create(&snapshot).Error; err != nil {
+			return err
+		}
+		return tx.Model(&tm).Update("status", models.ThingModelPublished).Error
+	}); err != nil {
+		fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.Log.Info("thing model published", "product", product.Key, "version", tm.Version, "elements", len(els))
+	ok(c, gin.H{"ok": true, "version": tm.Version, "status": models.ThingModelPublished, "snapshotId": snapshot.ID})
+}
+
+// ListThingModelVersions returns the published snapshots of a thing model.
+func (h *Handlers) ListThingModelVersions(c *gin.Context) {
+	productID, valid := parseID(c, "id")
+	if !valid {
+		return
+	}
+	if _, allowed := h.loadProduct(c, productID); !allowed {
+		return
+	}
+	var tm models.ThingModel
+	if err := h.DB.WithContext(c).Where("product_id = ?", productID).First(&tm).Error; err != nil {
+		fail(c, http.StatusNotFound, "thing model not found")
+		return
+	}
+	var vs []struct {
+		ID          uint      `json:"id"`
+		Version     string    `json:"version"`
+		CreatedBy   uint      `json:"createdBy"`
+		PublishedAt time.Time `json:"publishedAt"`
+	}
+	h.DB.WithContext(c).Model(&models.ThingModelVersion{}).
+		Select("id, version, created_by, published_at").
+		Where("thing_model_id = ?", tm.ID).
+		Order("published_at DESC").Scan(&vs)
+	ok(c, vs)
+}
+
+// RollbackThingModel restores a published snapshot into the current thing
+// model and returns the model to draft (it must be published again).
+func (h *Handlers) RollbackThingModel(c *gin.Context) {
+	productID, valid := parseID(c, "id")
+	if !valid {
+		return
+	}
+	snapshotID, valid := parseID(c, "versionId")
+	if !valid {
+		return
+	}
+	product, allowed := h.loadProductManage(c, productID)
+	if !allowed {
+		return
+	}
+	var tm models.ThingModel
+	if err := h.DB.WithContext(c).Where("product_id = ?", product.ID).First(&tm).Error; err != nil {
+		fail(c, http.StatusNotFound, "thing model not found")
+		return
+	}
+	var snap models.ThingModelVersion
+	if err := h.DB.WithContext(c).Where("id = ? AND thing_model_id = ?", snapshotID, tm.ID).First(&snap).Error; err != nil {
+		fail(c, http.StatusNotFound, "snapshot not found")
+		return
+	}
+	els := make([]models.ThingModelElement, 0, len(snap.Payload))
+	for _, m := range snap.Payload {
+		var el models.ThingModelElement
+		b, err := json.Marshal(m)
+		if err != nil {
+			fail(c, http.StatusInternalServerError, "corrupt snapshot: "+err.Error())
+			return
+		}
+		if err := json.Unmarshal(b, &el); err != nil {
+			fail(c, http.StatusInternalServerError, "corrupt snapshot: "+err.Error())
+			return
+		}
+		els = append(els, el)
+	}
+	err := h.DB.WithContext(c).Transaction(func(tx dbTx) error {
+		if err := tx.Where("thing_model_id = ?", tm.ID).Delete(&models.ThingModelElement{}).Error; err != nil {
+			return err
+		}
+		for i := range els {
+			els[i].ID = 0
+			els[i].ThingModelID = tm.ID
+			if err := tx.Create(&els[i]).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Model(&tm).Updates(map[string]any{
+			"status":  models.ThingModelDraft,
+			"version": snap.Version,
+		}).Error
+	})
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	h.Log.Info("thing model rolled back", "product", product.Key, "version", snap.Version, "elements", len(els))
+	ok(c, gin.H{"ok": true, "elements": len(els)})
 }

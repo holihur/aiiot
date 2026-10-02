@@ -115,14 +115,36 @@ const (
 )
 
 // ThingModel is the versioned description of a product's capabilities.
+// ThingModel lifecycle states.
+const (
+	ThingModelDraft     = "draft"
+	ThingModelPublished = "published"
+)
+
+// ThingModelStatuses are the allowed thing-model lifecycle states.
+var ThingModelStatuses = []string{ThingModelDraft, ThingModelPublished}
+
+// ThingModel is the behaviour contract of a product.
 type ThingModel struct {
 	Base
 	ProductID   uint   `gorm:"uniqueIndex;not null" json:"productId"`
 	Version     string `gorm:"size:32;not null;default:1.0.0" json:"version"`
 	Description string `gorm:"type:text" json:"description"`
+	// Status is the thing-model lifecycle state (draft | published).
+	Status string `gorm:"size:16;not null;default:draft" json:"status"`
 
 	Elements []ThingModelElement `gorm:"foreignKey:ThingModelID" json:"elements,omitempty"`
 }
+
+// Event categories.
+const (
+	EventCategoryInfo  = "info"
+	EventCategoryAlarm = "alarm"
+	EventCategoryFault = "fault"
+)
+
+// EventCategories are the allowed event categories.
+var EventCategories = []string{EventCategoryInfo, EventCategoryAlarm, EventCategoryFault}
 
 func (ThingModel) TableName() string { return "thing_models" }
 
@@ -134,6 +156,7 @@ type ThingModelElement struct {
 	Identifier   string   `gorm:"size:128;not null" json:"identifier"` // e.g. temperature
 	Name         string   `gorm:"size:160" json:"name"`
 	DataType     string   `gorm:"size:32;not null;default:double" json:"dataType"`
+	EventType    string   `gorm:"size:16;default:info" json:"eventType"`
 	AccessMode   string   `gorm:"size:8;default:rw" json:"accessMode"`
 	Unit         string   `gorm:"size:32" json:"unit"`
 	Min          *float64 `json:"min"`

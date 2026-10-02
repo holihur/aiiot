@@ -141,6 +141,14 @@ func (p *Publisher) Subject() string { return p.subject }
 // Close releases the NATS connection.
 func (p *Publisher) Close() { p.nc.Close() }
 
+// NewEventConn opens a plain (non-JetStream) NATS connection used to fan out
+// real-time SSE events across every core replica. Every subscriber receives
+// every event (no queue group): each replica forwards them to its local hub.
+func NewEventConn(cfg Config) (*nats.Conn, error) {
+	cfg = cfg.WithDefaults()
+	return connect(cfg)
+}
+
 // Handler consumes one uplink payload. delivered is the JetStream delivery
 // count (1 on first delivery, higher after redeliveries). Returning a non-nil
 // error causes the message to be redelivered (Nak); returning nil acknowledges
