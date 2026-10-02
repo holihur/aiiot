@@ -38,6 +38,11 @@ var (
 		Help: "Uplink messages processed by the core, by protocol/kind/outcome.",
 	}, []string{"protocol", "kind", "outcome"})
 
+	ingestDedupDropped = promauto.With(registry).NewCounter(prometheus.CounterOpts{
+		Name: "aiiot_ingest_dedup_dropped_total",
+		Help: "Redelivered uplinks dropped by the ingest idempotency claim.",
+	})
+
 	ingestDuration = promauto.With(registry).NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "aiiot_ingest_duration_seconds",
 		Help:    "Time to process one uplink message.",
@@ -119,6 +124,9 @@ func HTTP() gin.HandlerFunc {
 		httpRequestDuration.WithLabelValues(c.Request.Method, path).Observe(time.Since(start).Seconds())
 	}
 }
+
+// ObserveIngestDedupDrop records a duplicate uplink dropped by idempotency.
+func ObserveIngestDedupDrop() { ingestDedupDropped.Inc() }
 
 // ObserveIngest records one processed uplink message.
 func ObserveIngest(protocol, kind string, err error, start time.Time) {

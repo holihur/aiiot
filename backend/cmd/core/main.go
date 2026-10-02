@@ -177,16 +177,21 @@ func main() {
 	log.Info("core stopped")
 }
 
+// backgroundJobs runs maintenance loop the same schedule on every replica; a
+// PostgreSQL advisory lock (database.Exclusive) ensures each job actually runs
+// on exactly one replica at a time.
 func backgroundJobs(ctx context.Context, db *gorm.DB, cfg *config.Config, ingest *service.IngestService, registry *gateway.Registry, log *slog.Logger) {
 	offlineTicker := time.NewTicker(time.Minute)
 	partitionTicker := time.NewTicker(6 * time.Hour)
 	retentionTicker := time.NewTicker(12 * time.Hour)
 	rollupTicker := time.NewTicker(5 * time.Minute)
+	dedupTicker := time.NewTicker(time.Hour)
 	metricsTicker := time.NewTicker(30 * time.Second)
 	defer offlineTicker.Stop()
 	defer partitionTicker.Stop()
 	defer retentionTicker.Stop()
 	defer rollupTicker.Stop()
+	defer dedupTicker.Stop()
 	defer metricsTicker.Stop()
 
 	for {
@@ -194,23 +199,56 @@ func backgroundJobs(ctx context.Context, db *gorm.DB, cfg *config.Config, ingest
 		case <-ctx.Done():
 			return
 		case <-offlineTicker.C:
-			ingest.SweepOffline(ctx)
+			if err := database.Exclusive(ctx, db, database.LockKeyOfflineSweep, func() error {
+				ingest.SweepOffline(ctx)
+				return nil
+			}); err != nil {
+				log.Warn("offline sweep lock failed", "error", err)
+			}
 		case <-metricsTicker.C:
 			updateGauges(ctx, db, registry)
 		case <-partitionTicker.C:
-			if err := database.EnsurePartitions(db, cfg.Telemetry.PartitionAhead); err != nil {
-				log.Warn("ensure partitions failed", "error", err)
+			if err := database.Exclusive(ctx, db, database.LockKeyPartitions, func() error {
+				if err := database.EnsurePartitions(db, cfg.Telemetry.PartitionAhead); err != nil {
+					log.Warn("ensure partitions failed", "error", err)
+					return err
+				}
+				return nil
+			}); err != nil {
+				log.Warn("partition job failed", "error", err)
 			}
 		case <-rollupTicker.C:
-			if err := database.RefreshRollup(ctx, db); err != nil {
-				log.Warn("refresh telemetry rollup failed", "error", err)
+			if err := database.Exclusive(ctx, db, database.LockKeyRollup, func() error {
+				if err := database.RefreshRollup(ctx, db); err != nil {
+					log.Warn("refresh telemetry rollup failed", "error", err)
+					return err
+				}
+				return nil
+			}); err != nil {
+				log.Warn("rollup job failed", "error", err)
 			}
 		case <-retentionTicker.C:
-			days := service.NewSettings(db).GetInt(ctx, "telemetry.retention_days", cfg.Telemetry.RetentionDays)
-			if days > 0 {
-				if err := database.DropOldPartitions(db, days); err != nil {
-					log.Warn("drop old partitions failed", "error", err)
+			if err := database.Exclusive(ctx, db, database.LockKeyRetention, func() error {
+				days := service.NewSettings(db).GetInt(ctx, "telemetry.retention_days", cfg.Telemetry.RetentionDays)
+				if days > 0 {
+					if err := database.DropOldPartitions(db, days); err != nil {
+						log.Warn("drop old partitions failed", "error", err)
+						return err
+					}
 				}
+				return nil
+			}); err != nil {
+				log.Warn("retention job failed", "error", err)
+			}
+		case <-dedupTicker.C:
+			if err := database.Exclusive(ctx, db, database.LockKeyDedupCleanup, func() error {
+				if err := db.WithContext(ctx).Exec("DELETE FROM ingest_dedup WHERE ingested_at < now() - interval '24 hours'").Error; err != nil {
+					log.Warn("dedup cleanup failed", "error", err)
+					return err
+				}
+				return nil
+			}); err != nil {
+				log.Warn("dedup cleanup job failed", "error", err)
 			}
 		}
 	}

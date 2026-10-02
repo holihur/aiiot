@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -59,11 +61,71 @@ func NewIngestService(db *gorm.DB, resolver *Resolver, telemetry *TelemetryServi
 }
 
 // Handle processes one normalized uplink message and records ingest metrics.
+// NATS delivers at-least-once, so a redelivered message is claimed in the
+// ingest_dedup table first; already-processed messages are dropped.
 func (s *IngestService) Handle(ctx context.Context, msg *access.UplinkMessage) error {
 	start := time.Now()
+	key := ingestDedupKey(msg)
+	claimed := false
+	if key != "" {
+		ok, err := s.claimDedup(ctx, key, msg.Device.DeviceKey)
+		if err != nil {
+			// Dedup must never break ingest: on failure, process anyway.
+			s.log.Warn("dedup claim failed", "error", err)
+		} else if !ok {
+			// Already processed (redelivery). Acknowledge and drop.
+			metrics.ObserveIngestDedupDrop()
+			return nil
+		} else {
+			claimed = true
+		}
+	}
 	err := s.handle(ctx, msg)
+	if err != nil && claimed {
+		// Processing failed: release the claim so the redelivery can retry.
+		s.releaseDedup(ctx, key)
+	}
 	metrics.ObserveIngest(msg.Protocol, string(msg.Kind), err, start)
 	return err
+}
+
+// claimDedup atomically inserts an ingest claim. true = we own this message;
+// false = it was already processed and the redelivery must be dropped.
+func (s *IngestService) claimDedup(ctx context.Context, key, deviceKey string) (bool, error) {
+	res := s.db.WithContext(ctx).Exec(
+		"INSERT INTO ingest_dedup (key, device_key, ingested_at) VALUES (?, ?, ?) ON CONFLICT (key) DO NOTHING",
+		key, deviceKey, time.Now().UTC())
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
+// releaseDedup removes a claim after a failed ingest so the redelivery can try
+// again. Failures here are best-effort.
+func (s *IngestService) releaseDedup(ctx context.Context, key string) {
+	_ = s.db.WithContext(ctx).Exec("DELETE FROM ingest_dedup WHERE key = ?", key).Error
+}
+
+// ingestDedupKey builds a stable identity for an uplink so a redelivered copy
+// matches. Gateway-provided message ids (e.g. the custom TCP ack id) are
+// preferred; otherwise a content digest (kind/identifier/timestamp/payload)
+// is used.
+func ingestDedupKey(m *access.UplinkMessage) string {
+	if m == nil || m.Device.ProductKey == "" || m.Device.DeviceKey == "" {
+		return ""
+	}
+	base := m.Protocol + "|" + m.Device.ProductKey + "|" + m.Device.DeviceKey + "|" +
+		string(m.Kind) + "|" + m.Identifier + "|"
+	if id := m.Metadata["id"]; id != "" {
+		return base + "m:" + id
+	}
+	ts := ""
+	if !m.Timestamp.IsZero() {
+		ts = m.Timestamp.UTC().Format(time.RFC3339Nano)
+	}
+	h := sha256.Sum256(append([]byte(base+ts+"|"), m.Payload...))
+	return base + "h:" + hex.EncodeToString(h[:8])
 }
 
 func (s *IngestService) handle(ctx context.Context, msg *access.UplinkMessage) error {

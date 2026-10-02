@@ -73,6 +73,17 @@ CEL-based rule engine.
   JetStream stream with a durable, queue-grouped consumer, so the core can
   buffer and scale horizontally. Register/heartbeat/auth and downlinks keep
   using HTTP (request/response).
+- **Replica-safe maintenance** — background jobs (partition/retention/rollup,
+  offline sweep, dedup cleanup) run on every replica but are fenced by
+  PostgreSQL advisory locks, so each job executes on exactly one replica.
+- **At-least-once ingestion with idempotency** — a redelivered NATS uplink is
+  claimed in `ingest_dedup` before processing; duplicates are dropped (metrics:
+  `aiiot_ingest_dedup_dropped_total`) without re-inserting telemetry or
+  re-triggering rules.
+- **One-click device connection** — the Connect dialog generates copy-paste
+  runnable code (Python/HTTP, cURL, Python/MQTT, Python/custom-TCP) with real
+  credentials, plus an in-browser device simulator (lifecycle + periodic
+  property reports via HTTP ingest) for demos and integration testing.
 - **CEL rule engine** — conditions are Google CEL expressions; actions include
   webhook, downlink/publish, device command and log.
 - **Time-series in PostgreSQL** — a declaratively partitioned table
