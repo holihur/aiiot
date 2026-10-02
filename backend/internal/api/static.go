@@ -28,6 +28,13 @@ func RegisterStatic(r *gin.Engine, dir string) bool {
 		return false
 	}
 
+	// The SPA entry must never be cached: hashed assets are cacheable, but a
+	// stale index.html would keep referencing old bundles after a deploy.
+	r.GET("/", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-cache")
+		c.File(indexPath)
+	})
+
 	// Hashed build assets and other top-level files.
 	r.Static("/assets", filepath.Join(dir, "assets"))
 	r.StaticFile("/favicon.ico", filepath.Join(dir, "favicon.ico"))

@@ -106,6 +106,57 @@ func (a *Alerter) ResolveIf(ctx context.Context, rule *models.Rule, ev *RuleEven
 		}).Error
 }
 
+// EscalateDue promotes open alerts whose age has exceeded escalateAfter
+// (info -> warning -> critical). Critical alerts no longer escalate; the
+// counter still records how many times it was promoted.
+func (a *Alerter) EscalateDue(ctx context.Context, escalateAfter time.Duration) (int, error) {
+	if a == nil || a.db == nil || escalateAfter <= 0 {
+		return 0, nil
+	}
+	var open []models.Alert
+	if err := a.db.WithContext(ctx).
+		Where("status IN ?", []string{models.AlertStatusFiring, models.AlertStatusAcknowledged}).
+		Find(&open).Error; err != nil {
+		return 0, err
+	}
+	now := time.Now().UTC()
+	escalated := 0
+	for _, al := range open {
+		if now.Sub(al.StartsAt) <= escalateAfter*time.Duration(al.Escalations+1) {
+			continue
+		}
+		lvl := nextLevel(al.Level)
+		if lvl == al.Level {
+			al.Escalations++ // critical reached; record the tick
+		} else {
+			al.Level = lvl
+			al.Escalations++
+		}
+		escalated++
+		a.log.Info("alert escalated", "alert", al.ID, "rule", al.RuleID, "level", al.Level, "times", al.Escalations)
+		if err := a.db.WithContext(ctx).Model(&al).Updates(map[string]any{
+			"level":        al.Level,
+			"escalations":  al.Escalations,
+			"escalated_at": now,
+		}).Error; err != nil {
+			a.log.Warn("escalate alert failed", "error", err, "alert", al.ID)
+		}
+	}
+	return escalated, nil
+}
+
+// nextLevel promotes a severity one step up.
+func nextLevel(l string) string {
+	switch l {
+	case models.AlertLevelInfo:
+		return models.AlertLevelWarning
+	case models.AlertLevelWarning:
+		return models.AlertLevelCritical
+	default:
+		return l
+	}
+}
+
 // summarize builds the alert message from the triggering event.
 func summarize(rule *models.Rule, ev *RuleEvent) string {
 	if ev.Value == nil {

@@ -27,7 +27,7 @@ import { ProjectNav } from "@/components/ProjectNav";
 import { ConfirmButton } from "@/components/ConfirmButton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProjectRole } from "@/lib/useProjectRole";
-import { formatTime } from "@/lib/utils";
+import { formatTime, sinceText } from "@/lib/utils";
 
 export default function AlertsPage() {
   const projectId = Number(useParams().projectId);
@@ -226,8 +226,17 @@ export default function AlertsPage() {
                     <TableRow key={a.id}>
                       <TableCell className="whitespace-nowrap text-xs">{formatTime(a.startsAt)}</TableCell>
                       <TableCell>
-                        <div className="font-medium">{a.title}</div>
-                        {a.resolveReason && <div className="text-xs text-muted-foreground">{a.resolveReason}</div>}
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{a.title}</span>
+                          {(a.escalations ?? 0) > 0 && (
+                            <Badge variant="warning" title="escalated">
+                              ↑{a.escalations}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {a.status === "resolved" ? a.resolveReason || "resolved" : sinceText(a.startsAt)}
+                        </div>
                       </TableCell>
                       <TableCell className="font-mono text-xs">{a.deviceKey}</TableCell>
                       <TableCell className="font-mono text-xs">{a.identifier || "-"}</TableCell>

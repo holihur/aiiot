@@ -9,16 +9,16 @@ import (
 )
 
 type ruleRequest struct {
-	Name          string           `json:"name" binding:"required,max=160"`
-	Description   string           `json:"description"`
-	ProductID     *uint            `json:"productId"`
-	WorkspaceID   *uint            `json:"workspaceId"`
-	Enabled       *bool            `json:"enabled"`
-	TriggerType   string           `json:"triggerType" binding:"required"`
-	TriggerSource string           `json:"triggerSource"`
-	Condition     string           `json:"condition" binding:"required"`
-	Actions       models.JSONList  `json:"actions"`
-	Priority      int              `json:"priority"`
+	Name          string          `json:"name" binding:"required,max=160"`
+	Description   string          `json:"description"`
+	ProductID     *uint           `json:"productId"`
+	WorkspaceID   *uint           `json:"workspaceId"`
+	Enabled       *bool           `json:"enabled"`
+	TriggerType   string          `json:"triggerType" binding:"required"`
+	TriggerSource string          `json:"triggerSource"`
+	Condition     string          `json:"condition" binding:"required"`
+	Actions       models.JSONList `json:"actions"`
+	Priority      int             `json:"priority"`
 }
 
 func (h *Handlers) ListRules(c *gin.Context) {
@@ -218,11 +218,13 @@ func (h *Handlers) RuleReference(c *gin.Context) {
 			{"name": "params", "type": "map<string,dyn>", "description": "full params map"},
 			{"name": "payload", "type": "dyn", "description": "raw decoded payload"},
 			{"name": "now", "type": "timestamp", "description": "event time"},
+			{"name": "out_of_range", "type": "bool", "description": "value exceeded the thing-model min/max range"},
 		},
 		"examples": []gin.H{
 			{"name": "High temperature", "condition": `identifier == "temperature" && double(value) > 40.0`},
 			{"name": "Device offline", "condition": `kind == "lifecycle" && state == "offline"`},
 			{"name": "Low battery", "condition": `identifier == "battery" && double(value) < 15.0`},
+			{"name": "Out of range", "condition": `out_of_range == true`},
 		},
 		"triggers": []string{
 			models.TriggerTelemetry, models.TriggerEvent, models.TriggerDeviceOnline,

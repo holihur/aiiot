@@ -12,11 +12,12 @@ import (
 // one replica at a time (partition maintenance, retention, rollup refresh,
 // offline sweep, dedup cleanup).
 const (
-	LockKeyOfflineSweep int64 = 101
-	LockKeyPartitions   int64 = 102
-	LockKeyRetention    int64 = 103
-	LockKeyRollup       int64 = 104
-	LockKeyDedupCleanup int64 = 105
+	LockKeyOfflineSweep    int64 = 101
+	LockKeyPartitions      int64 = 102
+	LockKeyRetention       int64 = 103
+	LockKeyRollup          int64 = 104
+	LockKeyDedupCleanup    int64 = 105
+	LockKeyAlertEscalation int64 = 106
 )
 
 // Exclusive runs fn while holding a PostgreSQL advisory lock on a single

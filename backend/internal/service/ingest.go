@@ -37,8 +37,14 @@ type IngestService struct {
 	types   map[uint]thingTypes // productID -> identifier -> dataType
 }
 
+// propMeta carries the thing-model constraints of one property identifier.
+type propMeta struct {
+	dataType string
+	min, max *float64
+}
+
 type thingTypes struct {
-	byIdentifier map[string]string
+	byIdentifier map[string]propMeta
 	expires      time.Time
 }
 
@@ -197,9 +203,16 @@ func (s *IngestService) handleProperty(ctx context.Context, dc *DeviceContext, m
 	types := s.dataTypes(ctx, dc.Product.ID)
 	samples := make([]*Sample, 0, len(params))
 	for identifier, v := range params {
-		dataType := types[identifier]
+		meta := types[identifier]
+		dataType := meta.dataType
 		if dataType == "" {
 			dataType = inferType(v)
+		}
+		outOfRange := false
+		if fx, ok := numericValue(v); ok && (meta.min != nil || meta.max != nil) {
+			if (meta.min != nil && fx < *meta.min) || (meta.max != nil && fx > *meta.max) {
+				outOfRange = true
+			}
 		}
 		smp := Coerce(dataType, v)
 		smp.DeviceID = dc.Device.ID
@@ -223,6 +236,7 @@ func (s *IngestService) handleProperty(ctx context.Context, dc *DeviceContext, m
 			Payload:     value,
 			Now:         msg.Timestamp,
 			Device:      dc.Device,
+			OutOfRange:  outOfRange,
 		})
 	}
 	if err := s.telemetry.Write(ctx, samples); err != nil {
@@ -414,8 +428,9 @@ func (s *IngestService) SweepOffline(ctx context.Context) {
 	}
 }
 
-// dataTypes returns (and caches) the thing-model data type per identifier.
-func (s *IngestService) dataTypes(ctx context.Context, productID uint) map[string]string {
+// dataTypes returns (and caches) the thing-model property constraints per
+// identifier: data type plus optional min/max range.
+func (s *IngestService) dataTypes(ctx context.Context, productID uint) map[string]propMeta {
 	s.typesMu.RLock()
 	entry, ok := s.types[productID]
 	s.typesMu.RUnlock()
@@ -424,12 +439,12 @@ func (s *IngestService) dataTypes(ctx context.Context, productID uint) map[strin
 	}
 
 	var model models.ThingModel
-	result := map[string]string{}
+	result := map[string]propMeta{}
 	if err := s.db.WithContext(ctx).Where("product_id = ?", productID).First(&model).Error; err == nil {
 		var elements []models.ThingModelElement
 		if err := s.db.WithContext(ctx).Where("thing_model_id = ?", model.ID).Find(&elements).Error; err == nil {
 			for _, el := range elements {
-				result[el.Identifier] = el.DataType
+				result[el.Identifier] = propMeta{dataType: el.DataType, min: el.Min, max: el.Max}
 			}
 		}
 	}
@@ -466,6 +481,24 @@ func decodePropertyPayload(msg *access.UplinkMessage) (map[string]any, any, erro
 		return params, params, nil
 	}
 	return obj, obj, nil
+}
+
+// numericValue returns v as a float64 when it is numeric.
+func numericValue(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	}
+	return 0, false
 }
 
 func inferType(v any) string {

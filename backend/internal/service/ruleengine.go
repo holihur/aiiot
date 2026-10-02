@@ -33,6 +33,9 @@ type RuleEvent struct {
 	Payload     any
 	Now         time.Time
 	Device      *models.Device
+	// OutOfRange reports whether the reported value fell outside the
+	// thing-model min/max range for this identifier.
+	OutOfRange bool
 }
 
 // RuleEngine compiles CEL conditions and executes rule actions.
@@ -74,6 +77,7 @@ func NewRuleEngine(db *gorm.DB, downlink *DownlinkService, shadow *ShadowService
 		cel.Variable("params", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("payload", cel.DynType),
 		cel.Variable("now", cel.TimestampType),
+		cel.Variable("out_of_range", cel.BoolType), // thing-model min/max violation
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cel env: %w", err)
@@ -232,6 +236,7 @@ func (e *RuleEngine) activation(ev *RuleEvent) map[string]any {
 		"params":       params,
 		"payload":      ev.Payload,
 		"now":          ev.Now,
+		"out_of_range": ev.OutOfRange,
 	}
 }
 

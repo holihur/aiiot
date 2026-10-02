@@ -554,18 +554,22 @@ export default function ProductDetailPage() {
                     <TableRow>
                       <TableHead className="whitespace-nowrap">{t("common.identifier")}</TableHead>
                       <TableHead className="whitespace-nowrap">{t("common.name")}</TableHead>
-                      <TableHead className="whitespace-nowrap">{t("common.type")}</TableHead>
-                      <TableHead className="whitespace-nowrap">{t("product.access")}</TableHead>
-                      <TableHead className="whitespace-nowrap">{t("product.unit")}</TableHead>
+                      {group.type === "property" && (
+                        <>
+                          <TableHead className="whitespace-nowrap">{t("common.type")}</TableHead>
+                          <TableHead className="whitespace-nowrap">{t("product.access")}</TableHead>
+                          <TableHead className="whitespace-nowrap">{t("product.unit")}</TableHead>
+                          <TableHead className="whitespace-nowrap">{t("product.range")}</TableHead>
+                        </>
+                      )}
                       <TableHead className="whitespace-nowrap">{t("product.paramsColumn")}</TableHead>
-                      <TableHead className="whitespace-nowrap">{t("product.range")}</TableHead>
                       <TableHead className="w-24 whitespace-nowrap text-right">{t("common.actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {group.items.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={8} className="py-6 text-center text-muted-foreground">
+                        <TableCell colSpan={group.type === "property" ? 8 : 5} className="py-6 text-center text-muted-foreground">
                           {t("product.emptyHint", { type: t(`product.group_${group.type}`) })}
                         </TableCell>
                       </TableRow>
@@ -576,18 +580,22 @@ export default function ProductDetailPage() {
                         <TableRow key={index}>
                           <TableCell className="font-mono text-xs">{el.identifier}</TableCell>
                           <TableCell className="max-w-[12rem] truncate whitespace-nowrap">{el.name || "-"}</TableCell>
-                          <TableCell className="whitespace-nowrap">{el.dataType}</TableCell>
-                          <TableCell className="whitespace-nowrap">{el.type === "property" ? el.accessMode : "-"}</TableCell>
-                          <TableCell className="whitespace-nowrap">{el.unit || "-"}</TableCell>
+                          {group.type === "property" && (
+                            <>
+                              <TableCell className="whitespace-nowrap">{el.dataType}</TableCell>
+                              <TableCell className="whitespace-nowrap">{el.accessMode || "-"}</TableCell>
+                              <TableCell className="whitespace-nowrap">{el.unit || "-"}</TableCell>
+                              <TableCell className="whitespace-nowrap">
+                                {el.min != null || el.max != null ? `${el.min ?? "-"} ~ ${el.max ?? "-"}` : "-"}
+                              </TableCell>
+                            </>
+                          )}
                           <TableCell className="whitespace-nowrap">
                             {el.type === "service"
                               ? String(specParams(el, "inputs").length)
                               : el.type === "event"
                                 ? String(specParams(el, "fields").length)
                                 : "-"}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap">
-                            {el.min != null || el.max != null ? `${el.min ?? "-"} ~ ${el.max ?? "-"}` : "-"}
                           </TableCell>
                           <TableCell className="text-right">
                             {canManage && (
@@ -730,6 +738,7 @@ export default function ProductDetailPage() {
               <Label>{t("common.name")}</Label>
               <Input value={draft.name ?? ""} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
             </div>
+            {draft.type === "property" && (
             <div className="space-y-2">
               <Label>{t("product.dataType")}</Label>
               <Select value={draft.dataType} onValueChange={(v) => setDraft({ ...draft, dataType: v })}>
@@ -745,6 +754,7 @@ export default function ProductDetailPage() {
                 </SelectContent>
               </Select>
             </div>
+            )}
             {draft.type === "event" && (
               <div className="space-y-2">
                 <Label>{t("product.eventType")}</Label>
@@ -760,7 +770,7 @@ export default function ProductDetailPage() {
                 </Select>
               </div>
             )}
-            {draft.dataType === "enum" && (
+            {draft.type === "property" && draft.dataType === "enum" && (
               <div className="space-y-2 sm:col-span-2">
                 <Label>{t("product.enumValues")}</Label>
                 <EnumEditor
@@ -786,10 +796,13 @@ export default function ProductDetailPage() {
                 </Select>
               </div>
             )}
+            {draft.type === "property" && (
             <div className="space-y-2">
               <Label>{t("product.unit")}</Label>
               <Input value={draft.unit ?? ""} onChange={(e) => setDraft({ ...draft, unit: e.target.value })} />
             </div>
+            )}
+            {draft.type === "property" && (
             <div className="space-y-2">
               <Label>{t("product.min")}</Label>
               <Input
@@ -798,6 +811,8 @@ export default function ProductDetailPage() {
                 onChange={(e) => setDraft({ ...draft, min: e.target.value === "" ? null : Number(e.target.value) })}
               />
             </div>
+            )}
+            {draft.type === "property" && (
             <div className="space-y-2">
               <Label>{t("product.max")}</Label>
               <Input
@@ -806,6 +821,7 @@ export default function ProductDetailPage() {
                 onChange={(e) => setDraft({ ...draft, max: e.target.value === "" ? null : Number(e.target.value) })}
               />
             </div>
+            )}
           </div>
           {draft.type === "service" && (
             <div className="mt-4 space-y-2">

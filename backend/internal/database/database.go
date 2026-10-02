@@ -74,6 +74,7 @@ func Migrate(db *gorm.DB, tcfg config.TelemetryConfig) error {
 		&models.OTATaskDevice{},
 		&models.NotifyChannel{},
 		&models.NotificationLog{},
+		&models.DashboardBoard{},
 		&models.DeviceGroup{},
 		&models.DeviceGroupMember{},
 		&models.AuditLog{},

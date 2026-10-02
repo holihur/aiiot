@@ -313,8 +313,16 @@ export interface Alert {
   resolveReason?: string;
   ackedAt?: string;
   ackedBy?: number;
+  escalations?: number;
+  escalatedAt?: string;
   ruleName?: string;
   createdAt: string;
+}
+
+export interface DashboardPanel {
+  type: "stat" | "trend" | "alerts" | "devices" | "text";
+  title?: string;
+  config?: Record<string, unknown>;
 }
 
 export interface DeviceGroup {
@@ -661,15 +669,19 @@ export const api = {
   deleteChannel: (id: number) => del<{ ok: boolean }>(`/channels/${id}`),
   testChannel: (id: number) => post<{ ok: boolean }>(`/channels/${id}/test`),
   channelLogs: (id: number) => get<NotificationLog[]>(`/channels/${id}/logs`),
-  listAlerts: (projectId: number, opts?: { status?: string; deviceId?: number }) => {
+  listAlerts: (projectId: number, opts?: { status?: string; deviceId?: number; limit?: number }) => {
     const qs = new URLSearchParams();
     if (opts?.status) qs.set("status", opts.status);
     if (opts?.deviceId) qs.set("deviceId", String(opts.deviceId));
+    if (opts?.limit) qs.set("limit", String(opts.limit));
     const q = qs.toString();
     return get<{ items: Alert[]; counts: Record<string, number> }>(
       `/projects/${projectId}/alerts${q ? `?${q}` : ""}`,
     );
   },
+  getDashboard: (projectId: number) => get<{ panels: DashboardPanel[] }>(`/projects/${projectId}/dashboard`),
+  putDashboard: (projectId: number, panels: DashboardPanel[]) =>
+    put<{ ok: boolean; panels: number }>(`/projects/${projectId}/dashboard`, { panels }),
   ackAlert: (id: number) => post<{ ok: boolean }>(`/alerts/${id}/ack`),
   resolveAlert: (id: number, reason?: string) =>
     post<{ ok: boolean }>(`/alerts/${id}/resolve${reason ? `?reason=${encodeURIComponent(reason)}` : ""}`),

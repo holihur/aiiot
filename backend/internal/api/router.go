@@ -71,6 +71,8 @@ func NewRouter(h *Handlers) *gin.Engine {
 		auth.GET("/projects/:id/device-groups", h.ListDeviceGroups)
 		auth.POST("/projects/:id/device-groups", h.CreateDeviceGroup)
 		auth.GET("/projects/:id/alerts", h.ListAlerts)
+		auth.GET("/projects/:id/dashboard", h.GetDashboard)
+		auth.PUT("/projects/:id/dashboard", h.PutDashboard)
 		auth.POST("/alerts/:id/ack", h.AckAlert)
 		auth.POST("/alerts/:id/resolve", h.ResolveAlert)
 		auth.PUT("/device-groups/:id", h.UpdateDeviceGroup)

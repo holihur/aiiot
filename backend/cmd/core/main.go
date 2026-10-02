@@ -181,7 +181,7 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	go backgroundJobs(ctx, db, cfg, ingest, registry, log)
+	go backgroundJobs(ctx, db, cfg, ingest, registry, alerter, log)
 
 	go func() {
 		log.Info("core HTTP server listening", "addr", cfg.HTTPAddr)
@@ -203,19 +203,21 @@ func main() {
 // backgroundJobs runs maintenance loop the same schedule on every replica; a
 // PostgreSQL advisory lock (database.Exclusive) ensures each job actually runs
 // on exactly one replica at a time.
-func backgroundJobs(ctx context.Context, db *gorm.DB, cfg *config.Config, ingest *service.IngestService, registry *gateway.Registry, log *slog.Logger) {
+func backgroundJobs(ctx context.Context, db *gorm.DB, cfg *config.Config, ingest *service.IngestService, registry *gateway.Registry, alerter *service.Alerter, log *slog.Logger) {
 	offlineTicker := time.NewTicker(time.Minute)
 	partitionTicker := time.NewTicker(6 * time.Hour)
 	retentionTicker := time.NewTicker(12 * time.Hour)
 	rollupTicker := time.NewTicker(5 * time.Minute)
 	dedupTicker := time.NewTicker(time.Hour)
 	metricsTicker := time.NewTicker(30 * time.Second)
+	escalateTicker := time.NewTicker(time.Minute)
 	defer offlineTicker.Stop()
 	defer partitionTicker.Stop()
 	defer retentionTicker.Stop()
 	defer rollupTicker.Stop()
 	defer dedupTicker.Stop()
 	defer metricsTicker.Stop()
+	defer escalateTicker.Stop()
 
 	for {
 		select {
@@ -230,6 +232,17 @@ func backgroundJobs(ctx context.Context, db *gorm.DB, cfg *config.Config, ingest
 			}
 		case <-metricsTicker.C:
 			updateGauges(ctx, db, registry)
+		case <-escalateTicker.C:
+			if err := database.Exclusive(ctx, db, database.LockKeyAlertEscalation, func() error {
+				after := time.Duration(service.NewSettings(db).GetInt(ctx, "alert.escalate_after_minutes", 15)) * time.Minute
+				if _, err := alerter.EscalateDue(ctx, after); err != nil {
+					log.Warn("alert escalation failed", "error", err)
+					return err
+				}
+				return nil
+			}); err != nil {
+				log.Warn("alert escalation job failed", "error", err)
+			}
 		case <-partitionTicker.C:
 			if err := database.Exclusive(ctx, db, database.LockKeyPartitions, func() error {
 				if err := database.EnsurePartitions(db, cfg.Telemetry.PartitionAhead); err != nil {

@@ -37,6 +37,8 @@ type Alert struct {
 	ResolveReason string     `gorm:"size:64" json:"resolveReason"`
 	AckedAt       *time.Time `json:"ackedAt"`
 	AckedBy       uint       `json:"ackedBy"`
+	Escalations   int        `gorm:"default:0" json:"escalations"`
+	EscalatedAt   *time.Time `json:"escalatedAt"`
 }
 
 // TableName returns the alerts table name.
