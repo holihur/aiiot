@@ -37,7 +37,7 @@ const TableHead = React.forwardRef<HTMLTableCellElement, React.ThHTMLAttributes<
   ({ className, ...props }, ref) => (
     <th
       ref={ref}
-      className={cn("h-10 px-3 text-left align-middle font-medium text-muted-foreground", className)}
+      className={cn("h-10 px-3 text-left align-middle font-medium text-muted-foreground whitespace-nowrap", className)}
       {...props}
     />
   ),
@@ -46,7 +46,7 @@ TableHead.displayName = "TableHead";
 
 const TableCell = React.forwardRef<HTMLTableCellElement, React.TdHTMLAttributes<HTMLTableCellElement>>(
   ({ className, ...props }, ref) => (
-    <td ref={ref} className={cn("p-3 align-middle", className)} {...props} />
+    <td ref={ref} className={cn("p-3 align-middle whitespace-nowrap", className)} {...props} />
   ),
 );
 TableCell.displayName = "TableCell";

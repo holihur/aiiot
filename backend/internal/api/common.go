@@ -130,6 +130,21 @@ func (h *Handlers) loadProduct(c *gin.Context, id uint) (*models.Product, bool) 
 	return &p, true
 }
 
+// loadProductManage loads a product and enforces management permission: the
+// product creator or a system admin may edit/delete it; everyone else (any
+// logged-in user may view) gets 403.
+func (h *Handlers) loadProductManage(c *gin.Context, id uint) (*models.Product, bool) {
+	p, allowed := h.loadProduct(c, id)
+	if !allowed {
+		return nil, false
+	}
+	if middleware.SystemRole(c) == models.SystemRoleAdmin || p.CreatedBy == middleware.UserID(c) {
+		return p, true
+	}
+	fail(c, http.StatusForbidden, "no permission to manage this product")
+	return nil, false
+}
+
 func (h *Handlers) loadDevice(c *gin.Context, id uint, min string) (*models.Device, bool) {
 	var d models.Device
 	if err := h.DB.WithContext(c).First(&d, id).Error; err != nil {

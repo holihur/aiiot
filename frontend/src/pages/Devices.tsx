@@ -283,8 +283,8 @@ export default function DevicesPage() {
                   </TableCell>
                   <TableCell className="font-medium">{d.name}</TableCell>
                   <TableCell className="font-mono text-xs">{d.key}</TableCell>
-                  <TableCell>{d.product?.name}</TableCell>
-                  <TableCell>{d.workspace?.name}</TableCell>
+                  <TableCell className="max-w-[10rem] truncate">{d.product?.name}</TableCell>
+                  <TableCell className="max-w-[10rem] truncate">{d.workspace?.name}</TableCell>
                   <TableCell>
                     <Badge variant={d.online ? "success" : "secondary"}>{d.online ? "online" : "offline"}</Badge>
                   </TableCell>

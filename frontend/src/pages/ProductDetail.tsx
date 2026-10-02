@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Save, Trash2, Pencil, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { api, uploadFirmware, type ThingModelElement } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { useAuth } from "@/lib/auth";
+import { ConfirmButton } from "@/components/ConfirmButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,7 +46,9 @@ export default function ProductDetailPage() {
   const productId = Number(useParams().productId);
   const qc = useQueryClient();
   const { t } = useI18n();
+  const { user } = useAuth();
   const product = useQuery({ queryKey: ["product", productId], queryFn: () => api.getProduct(productId) });
+  const canManage = !!user && (user.systemRole === "admin" || product.data?.createdBy === user.id);
   const thingModel = useQuery({ queryKey: ["thingModel", productId], queryFn: () => api.getThingModel(productId) });
 
   const [elements, setElements] = useState<ThingModelElement[]>([]);
@@ -59,7 +63,33 @@ export default function ProductDetailPage() {
     }
   }, [thingModel.data]);
 
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({ name: "", description: "" });
+  const saveInfo = useMutation({
+    mutationFn: () =>
+      api.updateProduct(productId, {
+        name: editForm.name,
+        description: editForm.description,
+        protocol: product.data?.protocol,
+      }),
+    onSuccess: () => {
+      toast.success("Product updated");
+      setEditOpen(false);
+      void qc.invalidateQueries({ queryKey: ["product", productId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const removeProduct = useMutation({
+    mutationFn: () => api.deleteProduct(productId),
+    onSuccess: () => {
+      toast.success("Product deleted");
+      navigate("/products");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draft, setDraft] = useState<ThingModelElement>(emptyElement);
 
@@ -160,10 +190,68 @@ export default function ProductDetailPage() {
           </div>
           <p className="text-sm text-muted-foreground">{product.data?.description || t("projects.noDescription")}</p>
         </div>
-        <Button onClick={() => save.mutate()} disabled={!dirty || save.isPending} className="w-full sm:w-auto">
-          <Save className="h-4 w-4" /> {t("product.saveThingModel")}
-        </Button>
+        {canManage && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={() => save.mutate()} disabled={!dirty || save.isPending} className="w-full sm:w-auto">
+            <Save className="h-4 w-4" /> {t("product.saveThingModel")}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setEditForm({ name: product.data?.name ?? "", description: product.data?.description ?? "" });
+              setEditOpen(true);
+            }}
+          >
+            <Pencil className="h-4 w-4" /> {t("common.edit")}
+          </Button>
+          <ConfirmButton
+            title={t("product.deleteTitle")}
+            description={t("product.deleteDesc")}
+            confirmLabel={t("common.delete")}
+            onConfirm={() => removeProduct.mutateAsync()}
+          >
+            <Button variant="outline" className="text-destructive hover:text-destructive">
+              <Trash2 className="h-4 w-4" /> {t("common.delete")}
+            </Button>
+          </ConfirmButton>
+        </div>
+        )}
+
       </div>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("product.editTitle")}</DialogTitle>
+            <DialogDescription>{t("product.editDesc")}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>{t("common.name")}</Label>
+              <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label>{t("common.description")}</Label>
+              <Textarea
+                rows={3}
+                value={editForm.description}
+                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+              />
+            </div>
+            <div className="rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
+              {t("product.editHint")}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={() => saveInfo.mutate()} disabled={saveInfo.isPending || !editForm.name}>
+              {t("common.save")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Card>
         <CardHeader>
@@ -183,6 +271,7 @@ export default function ProductDetailPage() {
                 }}
               />
             </div>
+            {canManage && (
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" onClick={() => openAdd("property")}>
                 <Plus className="h-4 w-4" /> {t("product.property")}
@@ -194,29 +283,30 @@ export default function ProductDetailPage() {
                 <Plus className="h-4 w-4" /> {t("product.event")}
               </Button>
             </div>
+            )}
           </div>
 
           {grouped.map((group) => (
             <div key={group.type}>
-              <h3 className="mb-2 text-sm font-semibold capitalize">{group.type}s</h3>
+              <h3 className="mb-2 text-sm font-semibold">{t(`product.group_${group.type}`)}</h3>
               <div className="rounded-lg border">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{t("common.identifier")}</TableHead>
-                      <TableHead>{t("common.name")}</TableHead>
-                      <TableHead>{t("common.type")}</TableHead>
-                      <TableHead>{t("product.access")}</TableHead>
-                      <TableHead>{t("product.unit")}</TableHead>
-                      <TableHead>{t("product.range")}</TableHead>
-                      <TableHead className="w-24 text-right">{t("common.actions")}</TableHead>
+                      <TableHead className="whitespace-nowrap">{t("common.identifier")}</TableHead>
+                      <TableHead className="whitespace-nowrap">{t("common.name")}</TableHead>
+                      <TableHead className="whitespace-nowrap">{t("common.type")}</TableHead>
+                      <TableHead className="whitespace-nowrap">{t("product.access")}</TableHead>
+                      <TableHead className="whitespace-nowrap">{t("product.unit")}</TableHead>
+                      <TableHead className="whitespace-nowrap">{t("product.range")}</TableHead>
+                      <TableHead className="w-24 whitespace-nowrap text-right">{t("common.actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {group.items.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground">
-                          {t("common.none")}
+                        <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
+                          {t("product.emptyHint", { type: t(`product.group_${group.type}`) })}
                         </TableCell>
                       </TableRow>
                     )}
@@ -225,20 +315,24 @@ export default function ProductDetailPage() {
                       return (
                         <TableRow key={index}>
                           <TableCell className="font-mono text-xs">{el.identifier}</TableCell>
-                          <TableCell>{el.name || "-"}</TableCell>
-                          <TableCell>{el.dataType}</TableCell>
-                          <TableCell>{el.type === "property" ? el.accessMode : "-"}</TableCell>
-                          <TableCell>{el.unit || "-"}</TableCell>
-                          <TableCell>
+                          <TableCell className="max-w-[12rem] truncate whitespace-nowrap">{el.name || "-"}</TableCell>
+                          <TableCell className="whitespace-nowrap">{el.dataType}</TableCell>
+                          <TableCell className="whitespace-nowrap">{el.type === "property" ? el.accessMode : "-"}</TableCell>
+                          <TableCell className="whitespace-nowrap">{el.unit || "-"}</TableCell>
+                          <TableCell className="whitespace-nowrap">
                             {el.min != null || el.max != null ? `${el.min ?? "-"} ~ ${el.max ?? "-"}` : "-"}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button variant="ghost" size="icon" onClick={() => openEdit(index)}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => removeElement(index)}>
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            {canManage && (
+                            <div className="flex items-center justify-end gap-1 whitespace-nowrap">
+                              <Button variant="ghost" size="icon" onClick={() => openEdit(index)}>
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button variant="ghost" size="icon" onClick={() => removeElement(index)}>
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                            )}
                           </TableCell>
                         </TableRow>
                       );
@@ -258,11 +352,13 @@ export default function ProductDetailPage() {
             <CardDescription>{t("product.firmwareDesc")}</CardDescription>
           </div>
           <Dialog open={fwOpen} onOpenChange={setFwOpen}>
+            {canManage && (
             <DialogTrigger asChild>
               <Button size="sm">
                 <Upload className="h-4 w-4" /> {t("product.upload")}
               </Button>
             </DialogTrigger>
+            )}
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>{t("product.uploadTitle")}</DialogTitle>
@@ -316,9 +412,11 @@ export default function ProductDetailPage() {
                   <TableCell>{f.fileSize} B</TableCell>
                   <TableCell className="font-mono text-xs">{f.checksum.slice(0, 16)}...</TableCell>
                   <TableCell className="text-right">
+                    {canManage && (
                     <Button variant="ghost" size="icon" onClick={() => deleteFw.mutate(f.id)}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}

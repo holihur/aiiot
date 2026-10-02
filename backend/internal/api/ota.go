@@ -21,7 +21,7 @@ func (h *Handlers) UploadFirmware(c *gin.Context) {
 	if !valid {
 		return
 	}
-	product, allowed := h.loadProduct(c, productID)
+	product, allowed := h.loadProductManage(c, productID)
 	if !allowed {
 		return
 	}
@@ -114,7 +114,7 @@ func (h *Handlers) DeleteFirmware(c *gin.Context) {
 		fail(c, http.StatusNotFound, "firmware not found")
 		return
 	}
-	if _, allowed := h.loadProduct(c, fw.ProductID); !allowed {
+	if _, allowed := h.loadProductManage(c, fw.ProductID); !allowed {
 		return
 	}
 	_ = os.Remove(h.OTA.StoredPath(fw.ID))

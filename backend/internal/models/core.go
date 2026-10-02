@@ -95,6 +95,9 @@ type Product struct {
 	DataFormat  string `gorm:"size:32;not null;default:json" json:"dataFormat"`
 	Description string `gorm:"type:text" json:"description"`
 	Status      string `gorm:"size:32;not null;default:draft" json:"status"`
+	// CreatedBy is the user id who created this product. Products are global,
+	// but only the creator (or a system admin) can edit or delete them.
+	CreatedBy uint `gorm:"index;not null;default:0" json:"createdBy"`
 
 	ThingModel *ThingModel `gorm:"foreignKey:ProductID" json:"thingModel,omitempty"`
 }
@@ -126,20 +129,20 @@ func (ThingModel) TableName() string { return "thing_models" }
 // ThingModelElement is a single property, service or event definition.
 type ThingModelElement struct {
 	Base
-	ThingModelID uint   `gorm:"index;not null" json:"thingModelId"`
-	Type         string `gorm:"size:32;not null" json:"type"`       // property|service|event
-	Identifier   string `gorm:"size:128;not null" json:"identifier"` // e.g. temperature
-	Name         string `gorm:"size:160" json:"name"`
-	DataType     string `gorm:"size:32;not null;default:double" json:"dataType"`
-	AccessMode   string `gorm:"size:8;default:rw" json:"accessMode"`
-	Unit         string `gorm:"size:32" json:"unit"`
+	ThingModelID uint     `gorm:"index;not null" json:"thingModelId"`
+	Type         string   `gorm:"size:32;not null" json:"type"`        // property|service|event
+	Identifier   string   `gorm:"size:128;not null" json:"identifier"` // e.g. temperature
+	Name         string   `gorm:"size:160" json:"name"`
+	DataType     string   `gorm:"size:32;not null;default:double" json:"dataType"`
+	AccessMode   string   `gorm:"size:8;default:rw" json:"accessMode"`
+	Unit         string   `gorm:"size:32" json:"unit"`
 	Min          *float64 `json:"min"`
 	Max          *float64 `json:"max"`
 	Step         *float64 `json:"step"`
-	UnitName     string `gorm:"size:32" json:"unitName"`
-	Specs        JSONMap `gorm:"type:jsonb" json:"specs"` // enum, struct fields, call params, etc.
-	Required     bool   `gorm:"default:false" json:"required"`
-	Description  string `gorm:"type:text" json:"description"`
+	UnitName     string   `gorm:"size:32" json:"unitName"`
+	Specs        JSONMap  `gorm:"type:jsonb" json:"specs"` // enum, struct fields, call params, etc.
+	Required     bool     `gorm:"default:false" json:"required"`
+	Description  string   `gorm:"type:text" json:"description"`
 }
 
 func (ThingModelElement) TableName() string { return "thing_model_elements" }
@@ -152,18 +155,18 @@ const (
 // Device is a concrete connected thing.
 type Device struct {
 	Base
-	ProjectID   uint    `gorm:"index;not null" json:"projectId"`
-	WorkspaceID uint    `gorm:"index;not null" json:"workspaceId"`
-	ProductID   uint    `gorm:"index;not null" json:"productId"`
-	Key         string  `gorm:"uniqueIndex:idx_device_key;size:128;not null" json:"key"`
-	Secret      string  `gorm:"size:128" json:"-"`
-	Name        string  `gorm:"size:160;not null" json:"name"`
-	Status      string  `gorm:"size:32;not null;default:enabled" json:"status"`
-	Online      bool    `gorm:"default:false" json:"online"`
-	FirmwareVersion string `gorm:"size:64" json:"firmwareVersion"`
-	LastOnlineAt *time.Time `json:"lastOnlineAt"`
-	LastSeenAt  *time.Time  `json:"lastSeenAt"`
-	Tags        JSONMap `gorm:"type:jsonb" json:"tags"`
+	ProjectID       uint       `gorm:"index;not null" json:"projectId"`
+	WorkspaceID     uint       `gorm:"index;not null" json:"workspaceId"`
+	ProductID       uint       `gorm:"index;not null" json:"productId"`
+	Key             string     `gorm:"uniqueIndex:idx_device_key;size:128;not null" json:"key"`
+	Secret          string     `gorm:"size:128" json:"-"`
+	Name            string     `gorm:"size:160;not null" json:"name"`
+	Status          string     `gorm:"size:32;not null;default:enabled" json:"status"`
+	Online          bool       `gorm:"default:false" json:"online"`
+	FirmwareVersion string     `gorm:"size:64" json:"firmwareVersion"`
+	LastOnlineAt    *time.Time `json:"lastOnlineAt"`
+	LastSeenAt      *time.Time `json:"lastSeenAt"`
+	Tags            JSONMap    `gorm:"type:jsonb" json:"tags"`
 
 	Product   *Product   `gorm:"foreignKey:ProductID" json:"product,omitempty"`
 	Workspace *Workspace `gorm:"foreignKey:WorkspaceID" json:"workspace,omitempty"`

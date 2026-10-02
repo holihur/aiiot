@@ -46,6 +46,7 @@ export interface Product {
   dataFormat: string;
   description?: string;
   status: string;
+  createdBy?: number;
   thingModel?: ThingModel;
 }
 

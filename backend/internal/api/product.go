@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/aiiot/server/internal/middleware"
 	"github.com/aiiot/server/internal/models"
 	"github.com/gin-gonic/gin"
 )
@@ -74,6 +75,7 @@ func (h *Handlers) CreateProduct(c *gin.Context) {
 		DataFormat:  req.DataFormat,
 		Description: req.Description,
 		Status:      req.Status,
+		CreatedBy:   middleware.UserID(c),
 	}
 	err := h.DB.Transaction(func(tx dbTx) error {
 		if err := tx.Create(&product).Error; err != nil {
@@ -112,7 +114,7 @@ func (h *Handlers) UpdateProduct(c *gin.Context) {
 	if !valid {
 		return
 	}
-	product, allowed := h.loadProduct(c, id)
+	product, allowed := h.loadProductManage(c, id)
 	if !allowed {
 		return
 	}
@@ -145,7 +147,7 @@ func (h *Handlers) DeleteProduct(c *gin.Context) {
 	if !valid {
 		return
 	}
-	product, allowed := h.loadProduct(c, id)
+	product, allowed := h.loadProductManage(c, id)
 	if !allowed {
 		return
 	}
@@ -155,7 +157,15 @@ func (h *Handlers) DeleteProduct(c *gin.Context) {
 		fail(c, http.StatusConflict, "product still has devices")
 		return
 	}
-	if err := h.DB.Delete(&models.Product{}, product.ID).Error; err != nil {
+	// Delete the thing model (and its elements) first — products reference
+	// thing_models via a foreign key.
+	if err := h.DB.Transaction(func(tx dbTx) error {
+		tx.Exec("DELETE FROM thing_model_elements WHERE thing_model_id IN (SELECT id FROM thing_models WHERE product_id = ?)", product.ID)
+		if err := tx.Where("product_id = ?", product.ID).Delete(&models.ThingModel{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&models.Product{}, product.ID).Error
+	}); err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -165,9 +175,9 @@ func (h *Handlers) DeleteProduct(c *gin.Context) {
 // --- thing model ----------------------------------------------------------
 
 type thingModelRequest struct {
-	Version     string                      `json:"version"`
-	Description string                      `json:"description"`
-	Elements    []models.ThingModelElement  `json:"elements"`
+	Version     string                     `json:"version"`
+	Description string                     `json:"description"`
+	Elements    []models.ThingModelElement `json:"elements"`
 }
 
 func (h *Handlers) GetThingModel(c *gin.Context) {
@@ -196,7 +206,7 @@ func (h *Handlers) PutThingModel(c *gin.Context) {
 	if !valid {
 		return
 	}
-	product, allowed := h.loadProduct(c, id)
+	product, allowed := h.loadProductManage(c, id)
 	if !allowed {
 		return
 	}
@@ -263,7 +273,7 @@ func (h *Handlers) CreateElement(c *gin.Context) {
 	if !valid {
 		return
 	}
-	product, allowed := h.loadProduct(c, id)
+	product, allowed := h.loadProductManage(c, id)
 	if !allowed {
 		return
 	}
@@ -311,7 +321,7 @@ func (h *Handlers) UpdateElement(c *gin.Context) {
 	if !valid {
 		return
 	}
-	product, allowed := h.loadProduct(c, productID)
+	product, allowed := h.loadProductManage(c, productID)
 	if !allowed {
 		return
 	}
@@ -358,7 +368,7 @@ func (h *Handlers) DeleteElement(c *gin.Context) {
 	if !valid {
 		return
 	}
-	product, allowed := h.loadProduct(c, productID)
+	product, allowed := h.loadProductManage(c, productID)
 	if !allowed {
 		return
 	}

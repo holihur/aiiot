@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Boxes, Plus, Search } from "lucide-react";
+import { Boxes, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { useAuth } from "@/lib/auth";
+import { ConfirmButton } from "@/components/ConfirmButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,7 +33,18 @@ const protocolVariant: Record<string, "default" | "secondary" | "success" | "war
 
 export default function ProductsPage() {
   const qc = useQueryClient();
+  const remove = useMutation({
+    mutationFn: (id: number) => api.deleteProduct(id),
+    onSuccess: () => {
+      toast.success("Product deleted");
+      void qc.invalidateQueries({ queryKey: ["products"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const { t } = useI18n();
+  const { user } = useAuth();
+  const canManage = (p: { createdBy?: number }) => !!user && (user.systemRole === "admin" || p.createdBy === user.id);
   const [keyword, setKeyword] = useState("");
   const [view, setView] = useState<"grid" | "table">("grid");
   const { data: products, isLoading } = useQuery({
@@ -155,6 +168,7 @@ export default function ProductsPage() {
                   <TableHead>{t("common.key")}</TableHead>
                   <TableHead>{t("common.protocol")}</TableHead>
                   <TableHead>{t("common.status")}</TableHead>
+                  <TableHead className="w-16 text-right">{t("common.actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -170,6 +184,20 @@ export default function ProductsPage() {
                       <Badge variant={protocolVariant[p.protocol] ?? "secondary"}>{p.protocol}</Badge>
                     </TableCell>
                     <TableCell>{p.status}</TableCell>
+                    <TableCell className="text-right">
+                      {canManage(p) && (
+                      <ConfirmButton
+                        title={t("product.deleteTitle")}
+                        description={t("product.deleteDesc")}
+                        confirmLabel={t("common.delete")}
+                        onConfirm={() => remove.mutateAsync(p.id)}
+                      >
+                        <Button variant="ghost" size="icon" aria-label="Delete product">
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </ConfirmButton>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -179,20 +207,34 @@ export default function ProductsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {(products ?? []).map((p) => (
-            <Link key={p.id} to={`/products/${p.id}`}>
-              <Card className="h-full transition-colors hover:border-primary/50">
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between text-base">
-                    <span className="truncate">{p.name}</span>
+            <Card key={p.id} className="h-full transition-colors hover:border-primary/50">
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between gap-2 text-base">
+                  <Link to={`/products/${p.id}`} className="min-w-0 truncate hover:underline">
+                    {p.name}
+                  </Link>
+                  <span className="flex shrink-0 items-center gap-1">
                     <Badge variant={protocolVariant[p.protocol] ?? "secondary"}>{p.protocol}</Badge>
-                  </CardTitle>
-                  <CardDescription className="line-clamp-2">{p.description || t("projects.noDescription")}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <code className="text-xs text-muted-foreground">{p.key}</code>
-                </CardContent>
-              </Card>
-            </Link>
+                    {canManage(p) && (
+                    <ConfirmButton
+                      title={t("product.deleteTitle")}
+                      description={t("product.deleteDesc")}
+                      confirmLabel={t("common.delete")}
+                      onConfirm={() => remove.mutateAsync(p.id)}
+                    >
+                      <Button variant="ghost" size="icon" aria-label="Delete product">
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </ConfirmButton>
+                    )}
+                  </span>
+                </CardTitle>
+                <CardDescription className="line-clamp-2">{p.description || t("projects.noDescription")}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <code className="text-xs text-muted-foreground">{p.key}</code>
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}

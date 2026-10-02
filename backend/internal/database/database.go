@@ -81,6 +81,10 @@ func Migrate(db *gorm.DB, tcfg config.TelemetryConfig) error {
 		return fmt.Errorf("automigrate: %w", err)
 	}
 
+	// Backfill legacy products (created before ownership was tracked) to the
+	// earliest admin account.
+	db.Exec("UPDATE products SET created_by = (SELECT min(id) FROM users) WHERE created_by = 0")
+
 	if err := migrateTelemetry(db); err != nil {
 		return fmt.Errorf("migrate telemetry: %w", err)
 	}
