@@ -93,7 +93,7 @@ export default function OtaPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("ota.title")}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight whitespace-nowrap">{t("ota.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("ota.subtitle")}</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
@@ -190,6 +190,7 @@ export default function OtaPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="hidden md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -228,7 +229,7 @@ export default function OtaPage() {
                     {task.succeeded}/{task.total}
                     {task.failed > 0 && <span className="text-destructive"> ({task.failed} failed)</span>}
                   </TableCell>
-                  <TableCell className="text-xs">
+                  <TableCell className="hidden text-xs md:table-cell">
                     {task.batchSize > 0 ? `${task.currentWave + 1}/${Math.ceil(task.total / task.batchSize)}` : "-"}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">{formatTime(task.createdAt)}</TableCell>
@@ -251,6 +252,55 @@ export default function OtaPage() {
               ))}
             </TableBody>
           </Table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="space-y-2 md:hidden">
+            {isLoading && <p className="py-6 text-center text-sm text-muted-foreground">{t("common.loading")}</p>}
+            {(tasks ?? []).length === 0 && !isLoading && (
+              <p className="py-8 text-center text-sm text-muted-foreground">{t("ota.empty")}</p>
+            )}
+            {(tasks ?? []).map((task) => (
+              <div key={task.id} className="cursor-pointer rounded-lg border p-3" onClick={() => setDetailId(task.id)}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate font-medium">{task.name}</span>
+                  <Badge variant={statusVariant[task.status] ?? "secondary"} className="shrink-0">
+                    {task.status}
+                  </Badge>
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span>
+                    {t("ota.progress")}:{" "}
+                    <span className="font-medium text-foreground">
+                      {task.succeeded}/{task.total}
+                      {task.failed > 0 && <span className="text-destructive"> ({task.failed} failed)</span>}
+                    </span>
+                  </span>
+                  {task.firmware && <span>v{task.firmware.version}</span>}
+                  {task.batchSize > 0 && (
+                    <span>
+                      {task.currentWave + 1}/{Math.ceil(task.total / task.batchSize)} wave
+                    </span>
+                  )}
+                  <span>{formatTime(task.createdAt)}</span>
+                </div>
+                {(task.status === "succeeded" || task.status === "failed") && canWrite && (
+                  <div className="mt-2 flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        rollback.mutate(task.id);
+                      }}
+                    >
+                      {t("ota.rollback")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
 

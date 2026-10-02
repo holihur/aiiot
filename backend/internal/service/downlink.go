@@ -2,24 +2,30 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/aiiot/server/internal/access"
 	"github.com/aiiot/server/internal/gateway"
 	"github.com/aiiot/server/internal/models"
+	"gorm.io/gorm"
 )
 
 // DownlinkService routes platform-originated messages to devices through the
 // gateway registry. It is the single place that knows how to address a device.
+// It also keeps a per-device downlink journal (device_downlink_logs) covering
+// every source: API, batch, rule engine, shadow delta and OTA.
 type DownlinkService struct {
 	resolver *Resolver
 	registry *gateway.Registry
+	db       *gorm.DB
 	log      *slog.Logger
 }
 
-func NewDownlinkService(resolver *Resolver, registry *gateway.Registry, log *slog.Logger) *DownlinkService {
-	return &DownlinkService{resolver: resolver, registry: registry, log: log}
+func NewDownlinkService(db *gorm.DB, resolver *Resolver, registry *gateway.Registry, log *slog.Logger) *DownlinkService {
+	return &DownlinkService{resolver: resolver, registry: registry, db: db, log: log}
 }
 
 // Send delivers a downlink to a device resolved by ID.
@@ -42,9 +48,49 @@ func (s *DownlinkService) SendTo(ctx context.Context, dc *DeviceContext, kind ac
 		Metadata:   meta,
 	}
 	if err := s.registry.Downlink(ctx, dc.Product.Protocol, msg); err != nil {
+		s.record(ctx, dc, kind, identifier, payload, meta, msg, models.DownlinkStatusFailed, err.Error())
 		return fmt.Errorf("downlink to device %s: %w", dc.Device.Key, err)
 	}
+	s.record(ctx, dc, kind, identifier, payload, meta, msg, models.DownlinkStatusSent, "")
 	return nil
+}
+
+// record appends one row to the per-device downlink journal. Journaling must
+// never break the delivery path, so failures are only logged.
+func (s *DownlinkService) record(ctx context.Context, dc *DeviceContext, kind access.UplinkKind, identifier string, payload []byte, meta map[string]string, msg *access.DownlinkMessage, status, errMsg string) {
+	if s.db == nil {
+		return
+	}
+	source := meta["source"]
+	if source == "" {
+		source = models.DownlinkSourcePlatform
+	}
+	entry := &models.DeviceDownlinkLog{
+		ProjectID:  dc.Project.ID,
+		DeviceID:   dc.Device.ID,
+		Kind:       string(kind),
+		Identifier: identifier,
+		Source:     source,
+		Status:     status,
+		Error:      errMsg,
+		OccurredAt: time.Now().UTC(),
+	}
+	if m := msg.Metadata; m != nil {
+		if t := m["to"]; t != "" {
+			entry.Target = t
+		} else if m["broadcast"] == "true" {
+			entry.Target = "broadcast"
+		}
+	}
+	if len(payload) > 0 {
+		var mp models.JSONMap
+		if err := json.Unmarshal(payload, &mp); err == nil {
+			entry.Payload = mp
+		}
+	}
+	if err := s.db.WithContext(ctx).Create(entry).Error; err != nil {
+		s.log.Warn("record downlink log failed", "error", err, "device", dc.Device.Key)
+	}
 }
 
 // BroadcastWorkspace delivers a message to every enabled device in a

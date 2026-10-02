@@ -119,7 +119,7 @@ export default function GroupsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("groups.title")}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight whitespace-nowrap">{t("groups.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("groups.subtitle")}</p>
         </div>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -206,6 +206,7 @@ export default function GroupsPage() {
             )}
           </CardHeader>
           <CardContent>
+            <div className="hidden md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -246,6 +247,39 @@ export default function GroupsPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="space-y-2 md:hidden">
+              {(groupDevices.data ?? []).length === 0 && (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  {selected ? t("groups.noDevices") : t("groups.selectHint")}
+                </p>
+              )}
+              {(groupDevices.data ?? []).map((d) => (
+                <div key={d.id} className="rounded-lg border p-3">
+                  <div className="flex min-w-0 items-center justify-between gap-2">
+                    <span className="min-w-0 truncate font-medium">{d.name}</span>
+                    <Badge variant={d.online ? "success" : "secondary"} className="shrink-0">
+                      {d.online ? "online" : "offline"}
+                    </Badge>
+                  </div>
+                  <div className="mt-1 font-mono text-xs text-muted-foreground">{d.key}</div>
+                  <div className="mt-2 flex justify-end">
+                    <ConfirmButton
+                      title={t("groups.remove")}
+                      description={t("groups.removeDesc")}
+                      confirmLabel={t("groups.removeLabel")}
+                      onConfirm={() => removeDevice.mutateAsync(d.id)}
+                    >
+                      <Button variant="ghost" size="icon" aria-label="Remove from group">
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </ConfirmButton>
+                  </div>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       </div>

@@ -90,7 +90,7 @@ export default function AlertsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("alerts.title")}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight whitespace-nowrap">{t("alerts.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("alerts.subtitle")}</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
@@ -159,7 +159,7 @@ export default function AlertsPage() {
                 <TableHead>Enabled</TableHead>
                 <TableHead>{t("common.name")}</TableHead>
                 <TableHead>{t("common.type")}</TableHead>
-                <TableHead>{t("alerts.target")}</TableHead>
+                <TableHead className="hidden sm:table-cell">{t("alerts.target")}</TableHead>
                 <TableHead></TableHead>
               </TableRow>
             </TableHeader>
@@ -187,7 +187,7 @@ export default function AlertsPage() {
                   <TableCell>
                     <Badge variant="secondary">{ch.type}</Badge>
                   </TableCell>
-                  <TableCell className="max-w-xs truncate text-xs text-muted-foreground">
+                  <TableCell className="hidden max-w-xs truncate text-xs text-muted-foreground sm:table-cell">
                     {String(ch.config?.url ?? ch.config?.webhook ?? ch.config?.to ?? "-")}
                   </TableCell>
                   <TableCell className="text-right">

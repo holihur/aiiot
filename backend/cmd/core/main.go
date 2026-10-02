@@ -50,7 +50,7 @@ func main() {
 	resolver := service.NewResolver(db)
 	telemetry := service.NewTelemetryService(db, cfg.Telemetry, log)
 	registry := gateway.NewRegistry(db, cfg.Gateway.HeartbeatTimeout)
-	downlink := service.NewDownlinkService(resolver, registry, log)
+	downlink := service.NewDownlinkService(db, resolver, registry, log)
 	shadow := service.NewShadowService(db, downlink, log)
 	ota := service.NewOTAService(db, downlink, resolver, cfg.OTA, log)
 	notifier := service.NewNotifier(db, log)

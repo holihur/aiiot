@@ -224,7 +224,7 @@ func (s *ShadowService) pushDelta(ctx context.Context, dc *DeviceContext, delta 
 		return
 	}
 	if err := s.downlink.SendTo(ctx, dc, access.KindProperty, "", payload, map[string]string{
-		"source": "device_shadow",
+		"source": models.DownlinkSourceShadow,
 	}); err != nil {
 		// Device may be offline; the delta is retained and re-pushed later.
 		s.log.Debug("shadow delta push failed", "device", dc.Device.Key, "error", err)

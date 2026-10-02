@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, KeyRound, Plug, RefreshCw, Send, Trash2, Wifi } from "lucide-react";
+import { ArrowLeft, KeyRound, Plug, RefreshCw, Search, Send, Trash2, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import {
   CartesianGrid,
@@ -12,7 +12,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { api, type LatestValue, type TelemetryPoint } from "@/lib/api";
+import { api, type LatestValue, type TelemetryPoint, type TimelineItem } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
 import { useEventStream } from "@/lib/useEventStream";
 import { ConnectDialog } from "@/components/ConnectDialog";
@@ -37,6 +37,47 @@ function valueOf(v: LatestValue): string {
   return "-";
 }
 
+const dotClass: Record<string, string> = {
+  device: "bg-slate-400",
+  event: "bg-amber-500",
+  shadow: "bg-sky-500",
+  downlink: "bg-violet-500",
+  ota: "bg-emerald-500",
+};
+
+function statusVariant(status?: string) {
+  if (status === "sent" || status === "succeeded" || status === "online") return "success";
+  if (status === "failed" || status === "offline") return "destructive";
+  return "secondary";
+}
+
+function TimelineRow({ item }: { item: TimelineItem }) {
+  return (
+    <li className="relative">
+      <span
+        className={`absolute -left-[27px] top-1.5 h-3 w-3 rounded-full ring-4 ring-background ${
+          dotClass[item.type] ?? "bg-muted-foreground"
+        }`}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs tabular-nums text-muted-foreground">{formatTime(item.at)}</span>
+        <Badge variant="outline" className="uppercase">
+          {item.type}
+        </Badge>
+        {item.status && <Badge variant={statusVariant(item.status)}>{item.status}</Badge>}
+        <span className="font-medium">{item.title}</span>
+        {item.source && <Badge variant="secondary">{item.source}</Badge>}
+      </div>
+      {item.identifier && <div className="mt-0.5 font-mono text-xs text-muted-foreground">{item.identifier}</div>}
+      {item.detail && Object.keys(item.detail).length > 0 && (
+        <pre className="mt-1 max-h-40 overflow-auto rounded bg-muted p-2 font-mono text-xs">
+          {JSON.stringify(item.detail, null, 2)}
+        </pre>
+      )}
+    </li>
+  );
+}
+
 export default function DeviceDetailPage() {
   const deviceId = Number(useParams().deviceId);
   const navigate = useNavigate();
@@ -49,7 +90,18 @@ export default function DeviceDetailPage() {
     queryFn: () => api.latest(deviceId),
     refetchInterval: 5000,
   });
-  const events = useQuery({ queryKey: ["events", deviceId], queryFn: () => api.events(deviceId) });
+  const [eventQ, setEventQ] = useState("");
+  const events = useQuery({
+    queryKey: ["events", deviceId, eventQ],
+    queryFn: () => api.events(deviceId, { q: eventQ || undefined }),
+  });
+  const downlinks = useQuery({ queryKey: ["downlinks", deviceId], queryFn: () => api.downlinks(deviceId) });
+  const timeline = useQuery({ queryKey: ["timeline", deviceId], queryFn: () => api.timeline(deviceId) });
+  const [timelineFilter, setTimelineFilter] = useState<string>("all");
+  const filteredTimeline = useMemo(() => {
+    const items = timeline.data ?? [];
+    return timelineFilter === "all" ? items : items.filter((it) => it.type === timelineFilter);
+  }, [timeline.data, timelineFilter]);
   const shadow = useQuery({
     queryKey: ["shadow", deviceId],
     queryFn: () => api.getShadow(deviceId),
@@ -110,7 +162,11 @@ export default function DeviceDetailPage() {
         identifier: commandIdentifier || undefined,
         payload: JSON.parse(commandPayload || "{}"),
       }),
-    onSuccess: () => toast.success("Command sent to gateway"),
+    onSuccess: () => {
+      toast.success("Command sent to gateway");
+      void qc.invalidateQueries({ queryKey: ["downlinks", deviceId] });
+      void qc.invalidateQueries({ queryKey: ["timeline", deviceId] });
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -135,6 +191,7 @@ export default function DeviceDetailPage() {
     onSuccess: () => {
       toast.success("Desired state updated");
       void qc.invalidateQueries({ queryKey: ["shadow", deviceId] });
+      void qc.invalidateQueries({ queryKey: ["timeline", deviceId] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -176,20 +233,26 @@ export default function DeviceDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-semibold tracking-tight">{d?.name ?? "Device"}</h1>
-              <Badge variant={d?.online ? "success" : "secondary"}>
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight whitespace-nowrap">
+                {d?.name ?? "Device"}
+              </h1>
+              <Badge variant={d?.online ? "success" : "secondary"} className="shrink-0">
                 <Wifi className="mr-1 h-3 w-3" />
                 {d?.online ? "online" : "offline"}
               </Badge>
-              {d && <Badge variant="outline">{d.status}</Badge>}
+              {d && (
+                <Badge variant="outline" className="shrink-0">
+                  {d.status}
+                </Badge>
+              )}
             </div>
-            <p className="text-sm text-muted-foreground">
+            <p className="truncate text-sm text-muted-foreground">
               <span className="font-mono">{d?.key}</span>
               {d?.product && <> · {d.product.name} ({d.product.protocol})</>}
               {d?.workspace && <> · {d.workspace.name}</>}
@@ -204,6 +267,7 @@ export default function DeviceDetailPage() {
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">{t("device.overview")}</TabsTrigger>
+          <TabsTrigger value="timeline">{t("device.timeline")}</TabsTrigger>
           <TabsTrigger value="telemetry">{t("device.telemetry")}</TabsTrigger>
           <TabsTrigger value="events">{t("device.events")}</TabsTrigger>
           <TabsTrigger value="command">{t("device.command")}</TabsTrigger>
@@ -302,9 +366,52 @@ export default function DeviceDetailPage() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="timeline">
+          <Card>
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0">
+              <div>
+                <CardTitle className="text-base">{t("device.timelineTitle")}</CardTitle>
+                <CardDescription>{t("device.timelineDesc")}</CardDescription>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {["all", "device", "event", "shadow", "downlink", "ota"].map((f) => (
+                  <Button
+                    key={f}
+                    size="sm"
+                    variant={timelineFilter === f ? "default" : "outline"}
+                    onClick={() => setTimelineFilter(f)}
+                  >
+                    {t(`device.tl_${f}`)}
+                  </Button>
+                ))}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {filteredTimeline.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">{t("device.noTimeline")}</p>
+              ) : (
+                <ol className="relative ml-3 space-y-6 border-l pl-6">
+                  {filteredTimeline.map((it, i) => (
+                    <TimelineRow key={`${it.type}-${it.at}-${i}`} item={it} />
+                  ))}
+                </ol>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="events">
           <Card>
-            <CardContent className="pt-5">
+            <CardContent className="space-y-3 pt-5">
+              <div className="relative sm:max-w-xs">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  className="pl-8"
+                  placeholder={t("device.searchEvents")}
+                  value={eventQ}
+                  onChange={(e) => setEventQ(e.target.value)}
+                />
+              </div>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -368,6 +475,56 @@ export default function DeviceDetailPage() {
               <Button onClick={() => sendCommand.mutate()} disabled={sendCommand.isPending}>
                 <Send className="h-4 w-4" /> {t("device.sendCommand")}
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">{t("device.downlinkHistory")}</CardTitle>
+              <CardDescription>{t("device.downlinkHistoryDesc")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("audit.time")}</TableHead>
+                    <TableHead>{t("devices.kind")}</TableHead>
+                    <TableHead>{t("device.source")}</TableHead>
+                    <TableHead>{t("device.status")}</TableHead>
+                    <TableHead>{t("devices.payload")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(downlinks.data ?? []).length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
+                        {t("device.noDownlinks")}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {(downlinks.data ?? []).map((dl) => (
+                    <TableRow key={dl.id}>
+                      <TableCell className="whitespace-nowrap text-xs">{formatTime(dl.occurredAt)}</TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {dl.kind}
+                        {dl.identifier ? ` / ${dl.identifier}` : ""}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary">{dl.source}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={dl.status === "sent" ? "success" : "destructive"}>{dl.status}</Badge>
+                      </TableCell>
+                      <TableCell
+                        className="max-w-md truncate font-mono text-xs"
+                        title={JSON.stringify(dl.payload ?? {})}
+                      >
+                        {JSON.stringify(dl.payload ?? {})}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </TabsContent>

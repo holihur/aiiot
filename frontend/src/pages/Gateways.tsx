@@ -33,7 +33,7 @@ export default function GatewaysPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("gateways.title")}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight whitespace-nowrap">{t("gateways.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("gateways.subtitle")}</p>
         </div>
         <Button variant="outline" onClick={() => gateways.refetch()}>
@@ -54,10 +54,10 @@ export default function GatewaysPage() {
               <TableRow>
                 <TableHead>{t("gateways.instance")}</TableHead>
                 <TableHead>{t("common.protocol")}</TableHead>
-                <TableHead>{t("gateways.version")}</TableHead>
-                <TableHead>{t("gateways.activeDevices")}</TableHead>
-                <TableHead>{t("gateways.downlinkUrl")}</TableHead>
-                <TableHead>{t("gateways.lastHeartbeat")}</TableHead>
+                <TableHead className="hidden md:table-cell">{t("gateways.version")}</TableHead>
+                <TableHead className="hidden md:table-cell">{t("gateways.activeDevices")}</TableHead>
+                <TableHead className="hidden md:table-cell">{t("gateways.downlinkUrl")}</TableHead>
+                <TableHead className="hidden sm:table-cell">{t("gateways.lastHeartbeat")}</TableHead>
                 <TableHead>{t("gateways.state")}</TableHead>
                 <TableHead className="w-16"></TableHead>
               </TableRow>
@@ -80,10 +80,10 @@ export default function GatewaysPage() {
                   <TableCell>
                     <Badge variant={protocolVariant[g.protocol] ?? "secondary"}>{g.protocol}</Badge>
                   </TableCell>
-                  <TableCell>{g.version}</TableCell>
-                  <TableCell>{g.activeDevices}</TableCell>
-                  <TableCell className="font-mono text-xs">{g.downlinkUrl}</TableCell>
-                  <TableCell className="text-xs">{formatTime(g.lastHeartbeat)}</TableCell>
+                  <TableCell className="hidden md:table-cell">{g.version}</TableCell>
+                  <TableCell className="hidden md:table-cell">{g.activeDevices}</TableCell>
+                  <TableCell className="hidden font-mono text-xs md:table-cell">{g.downlinkUrl}</TableCell>
+                  <TableCell className="hidden text-xs sm:table-cell">{formatTime(g.lastHeartbeat)}</TableCell>
                   <TableCell>
                     <Badge variant={g.healthy ? "success" : "destructive"}>{g.healthy ? t("gateways.healthy") : t("gateways.stale")}</Badge>
                   </TableCell>

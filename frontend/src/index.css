@@ -53,8 +53,25 @@
   * {
     @apply border-border;
   }
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* Mobile: hide native scrollbars (horizontal table/tab pans), keep touch
+   scrolling; desktop keeps default scrollbars. */
+@media (max-width: 767px) {
+  ::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
+  /* Room for the fixed bottom navigation (safe-area aware). */
+  .mobile-safe-bottom {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
 }

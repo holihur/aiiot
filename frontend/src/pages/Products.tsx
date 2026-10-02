@@ -62,7 +62,7 @@ export default function ProductsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("products.title")}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight whitespace-nowrap">{t("products.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("products.subtitle")}</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>

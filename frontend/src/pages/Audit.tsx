@@ -28,7 +28,7 @@ export default function AuditPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("audit.title")}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight whitespace-nowrap">{t("audit.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("audit.subtitle")}</p>
         </div>
         <Button variant="outline" onClick={() => logs.refetch()}>
@@ -61,11 +61,11 @@ export default function AuditPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>{t("audit.time")}</TableHead>
-                <TableHead>{t("audit.user")}</TableHead>
+                <TableHead className="hidden md:table-cell">{t("audit.user")}</TableHead>
                 <TableHead>{t("audit.method")}</TableHead>
                 <TableHead>{t("audit.path")}</TableHead>
                 <TableHead>{t("common.status")}</TableHead>
-                <TableHead>IP</TableHead>
+                <TableHead className="hidden md:table-cell">IP</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -79,7 +79,7 @@ export default function AuditPage() {
               {(logs.data ?? []).map((l) => (
                 <TableRow key={l.id}>
                   <TableCell className="whitespace-nowrap text-xs">{formatTime(l.createdAt)}</TableCell>
-                  <TableCell className="text-sm">{l.username || `#${l.userId}`}</TableCell>
+                  <TableCell className="hidden text-sm md:table-cell">{l.username || `#${l.userId}`}</TableCell>
                   <TableCell>
                     <Badge variant="outline">{l.method}</Badge>
                   </TableCell>
@@ -87,7 +87,7 @@ export default function AuditPage() {
                   <TableCell>
                     <Badge variant={l.status < 400 ? "success" : "destructive"}>{l.status}</Badge>
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">{l.ip}</TableCell>
+                  <TableCell className="hidden text-xs text-muted-foreground md:table-cell">{l.ip}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

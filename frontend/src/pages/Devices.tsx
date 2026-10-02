@@ -132,7 +132,7 @@ export default function DevicesPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight">{t("devices.title")}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight whitespace-nowrap">{t("devices.title")}</h1>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button disabled={!canWrite}>
@@ -197,7 +197,7 @@ export default function DevicesPage() {
 
       <div className="flex flex-wrap gap-3">
         <Select value={productFilter} onValueChange={setProductFilter}>
-          <SelectTrigger className="w-48">
+          <SelectTrigger className="w-full sm:w-48">
             <SelectValue placeholder="Product" />
           </SelectTrigger>
           <SelectContent>
@@ -210,7 +210,7 @@ export default function DevicesPage() {
           </SelectContent>
         </Select>
         <Select value={workspaceFilter} onValueChange={setWorkspaceFilter}>
-          <SelectTrigger className="w-48">
+          <SelectTrigger className="w-full sm:w-48">
             <SelectValue placeholder="Workspace" />
           </SelectTrigger>
           <SelectContent>
@@ -223,7 +223,7 @@ export default function DevicesPage() {
           </SelectContent>
         </Select>
         <Input
-          className="w-56"
+          className="w-full sm:w-56"
           placeholder={t("devices.searchPlaceholder")}
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}

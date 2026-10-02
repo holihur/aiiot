@@ -65,6 +65,7 @@ func Migrate(db *gorm.DB, tcfg config.TelemetryConfig) error {
 		&models.GatewayInstance{},
 		&models.DeviceShadow{},
 		&models.DeviceShadowLog{},
+		&models.DeviceDownlinkLog{},
 		&models.Firmware{},
 		&models.OTATask{},
 		&models.OTATaskDevice{},

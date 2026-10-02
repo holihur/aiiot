@@ -221,6 +221,21 @@ func (s *IngestService) handleLifecycle(ctx context.Context, dc *DeviceContext, 
 		})
 	}
 
+	// Journal the transition as an event so the device timeline can show
+	// when the device came online / went offline.
+	event := &models.DeviceEvent{
+		ProjectID:   dc.Project.ID,
+		WorkspaceID: dc.Workspace.ID,
+		ProductID:   dc.Product.ID,
+		DeviceID:    dc.Device.ID,
+		Type:        "lifecycle",
+		Payload:     models.JSONMap{"state": state},
+		OccurredAt:  now,
+	}
+	if err := s.db.WithContext(ctx).Create(event).Error; err != nil {
+		s.log.Warn("persist lifecycle event failed", "error", err)
+	}
+
 	s.rules.Evaluate(ctx, &RuleEvent{
 		Kind:        access.KindLifecycle,
 		State:       state,

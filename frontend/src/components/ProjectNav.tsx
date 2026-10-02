@@ -14,7 +14,7 @@ export function ProjectNav({ projectId }: { projectId: number }) {
     { to: `${base}/alerts`, label: "tab.alerts", end: false },
   ];
   return (
-    <div className="flex flex-wrap gap-1 border-b">
+    <div className="-mx-1 flex flex-nowrap gap-1 overflow-x-auto border-b px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {tabs.map((tab) => (
         <NavLink
           key={tab.to}

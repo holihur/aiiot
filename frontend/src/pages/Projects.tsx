@@ -42,7 +42,7 @@ export default function ProjectsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("projects.title")}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight whitespace-nowrap">{t("projects.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("projects.subtitle")}</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>

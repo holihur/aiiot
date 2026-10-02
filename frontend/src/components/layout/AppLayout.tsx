@@ -124,9 +124,34 @@ export function AppLayout() {
           <span className="font-semibold">{t("app.title")}</span>
           {user?.systemRole === "admin" && <Badge variant="secondary" className="ml-auto">admin</Badge>}
         </header>
-        <main className="flex-1 p-4 sm:p-6">
+        <main className="flex-1 p-4 pb-24 sm:p-6 sm:pb-6">
           <Outlet />
         </main>
+
+        {/* Mobile bottom navigation: the three high-frequency entries. The
+            slide-over menu still covers project switching / sign out. */}
+        <nav
+          className="fixed inset-x-0 bottom-0 z-40 flex border-t bg-background/95 backdrop-blur md:hidden"
+          style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+          aria-label="Primary"
+        >
+          {operations.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={({ isActive }) =>
+                cn(
+                  "flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium transition-colors",
+                  isActive ? "text-primary" : "text-muted-foreground hover:text-foreground",
+                )
+              }
+            >
+              <item.icon className="h-5 w-5" />
+              {t(item.label)}
+            </NavLink>
+          ))}
+        </nav>
       </div>
     </div>
   );

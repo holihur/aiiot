@@ -123,6 +123,29 @@ export interface DeviceEvent {
   occurredAt: string;
 }
 
+export interface DeviceDownlinkLog {
+  id: number;
+  deviceId: number;
+  kind: string;
+  identifier?: string;
+  payload?: Record<string, unknown>;
+  source: string;
+  status: "sent" | "failed";
+  error?: string;
+  target?: string;
+  occurredAt: string;
+}
+
+export interface TimelineItem {
+  at: string;
+  type: "device" | "event" | "shadow" | "downlink" | "ota";
+  title: string;
+  identifier?: string;
+  source?: string;
+  status?: string;
+  detail?: Record<string, unknown>;
+}
+
 export interface Rule {
   id: number;
   projectId: number;
@@ -505,7 +528,15 @@ export const api = {
     });
     return get<{ mode: string; source?: string; points: TelemetryPoint[] }>(`/devices/${id}/telemetry?${qs.toString()}`);
   },
-  events: (id: number) => get<DeviceEvent[]>(`/devices/${id}/events`),
+  events: (id: number, opts?: { q?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (opts?.q) qs.set("q", opts.q);
+    if (opts?.limit) qs.set("limit", String(opts.limit));
+    const q = qs.toString();
+    return get<DeviceEvent[]>(`/devices/${id}/events${q ? `?${q}` : ""}`);
+  },
+  downlinks: (id: number) => get<DeviceDownlinkLog[]>(`/devices/${id}/downlinks`),
+  timeline: (id: number) => get<TimelineItem[]>(`/devices/${id}/timeline`),
   command: (id: number, b: { kind?: string; identifier?: string; payload?: unknown }) =>
     post<{ ok: boolean }>(`/devices/${id}/command`, b),
   peer: (id: number, b: { target?: string; broadcast?: boolean; payload?: unknown }) =>

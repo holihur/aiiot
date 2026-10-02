@@ -55,7 +55,7 @@ export default function StoragePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{t("storage.title")}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight whitespace-nowrap">{t("storage.title")}</h1>
         <p className="text-sm text-muted-foreground">{t("storage.subtitle")}</p>
       </div>
 

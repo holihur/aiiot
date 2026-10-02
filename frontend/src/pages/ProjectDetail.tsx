@@ -116,10 +116,12 @@ export default function ProjectDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">{project.data?.name ?? t("project.title")}</h1>
-            <code className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{project.data?.key}</code>
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-3">
+            <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight whitespace-nowrap">
+              {project.data?.name ?? t("project.title")}
+            </h1>
+            <code className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{project.data?.key}</code>
           </div>
           <p className="text-sm text-muted-foreground">{project.data?.description || t("projects.noDescription")}</p>
         </div>

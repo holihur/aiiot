@@ -96,6 +96,8 @@ func NewRouter(h *Handlers) *gin.Engine {
 		auth.GET("/devices/:id/latest", h.DeviceLatest)
 		auth.GET("/devices/:id/telemetry", h.DeviceTelemetry)
 		auth.GET("/devices/:id/events", h.DeviceEvents)
+		auth.GET("/devices/:id/downlinks", h.DeviceDownlinks)
+		auth.GET("/devices/:id/timeline", h.DeviceTimeline)
 		auth.POST("/devices/:id/command", h.DeviceCommand)
 		auth.POST("/devices/:id/peer", h.DevicePeer)
 		auth.GET("/devices/:id/shadow", h.GetDeviceShadow)

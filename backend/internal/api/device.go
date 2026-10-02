@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -337,6 +338,8 @@ func (h *Handlers) DeviceTelemetry(c *gin.Context) {
 	ok(c, gin.H{"mode": "raw", "points": rows})
 }
 
+// DeviceEvents lists the events reported by a device, with optional keyword
+// search (identifier or payload text) and a since window.
 func (h *Handlers) DeviceEvents(c *gin.Context) {
 	id, valid := parseID(c, "id")
 	if !valid {
@@ -346,13 +349,157 @@ func (h *Handlers) DeviceEvents(c *gin.Context) {
 	if !allowed {
 		return
 	}
+	limit := parseLimit(c.Query("limit"), 200, 1000)
+	q := h.DB.WithContext(c).Where("device_id = ?", device.ID)
+	if match := c.Query("q"); match != "" {
+		pattern := "%" + match + "%"
+		q = q.Where("identifier ILIKE ? OR type ILIKE ? OR payload::text ILIKE ?", pattern, pattern, pattern)
+	}
+	if since := c.Query("since"); since != "" {
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			q = q.Where("occurred_at >= ?", t)
+		}
+	}
 	var events []models.DeviceEvent
-	if err := h.DB.WithContext(c).Where("device_id = ?", device.ID).
-		Order("occurred_at DESC").Limit(200).Find(&events).Error; err != nil {
+	if err := q.Order("occurred_at DESC").Limit(limit).Find(&events).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 	ok(c, events)
+}
+
+// DeviceDownlinks returns the recent downlink journal for a device: every
+// platform-originated message (API, batch, rule, shadow delta, OTA) with its
+// result.
+func (h *Handlers) DeviceDownlinks(c *gin.Context) {
+	id, valid := parseID(c, "id")
+	if !valid {
+		return
+	}
+	device, allowed := h.loadDevice(c, id, models.ProjectRoleViewer)
+	if !allowed {
+		return
+	}
+	limit := parseLimit(c.Query("limit"), 100, 500)
+	q := h.DB.WithContext(c).Where("device_id = ?", device.ID)
+	if since := c.Query("since"); since != "" {
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			q = q.Where("occurred_at >= ?", t)
+		}
+	}
+	var logs []models.DeviceDownlinkLog
+	if err := q.Order("occurred_at DESC").Limit(limit).Find(&logs).Error; err != nil {
+		fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	ok(c, logs)
+}
+
+// timelineItem is one entry in the unified device timeline.
+type timelineItem struct {
+	At         time.Time      `json:"at"`
+	Type       string         `json:"type"` // device / lifecycle / event / shadow / downlink / ota
+	Title      string         `json:"title"`
+	Identifier string         `json:"identifier,omitempty"`
+	Source     string         `json:"source,omitempty"`
+	Status     string         `json:"status,omitempty"`
+	Detail     map[string]any `json:"detail,omitempty"`
+}
+
+// DeviceTimeline merges device creation, lifecycle transitions, thing-model
+// events, shadow changes, downlinks and OTA progress into one reverse
+// chronological feed.
+func (h *Handlers) DeviceTimeline(c *gin.Context) {
+	id, valid := parseID(c, "id")
+	if !valid {
+		return
+	}
+	device, allowed := h.loadDevice(c, id, models.ProjectRoleViewer)
+	if !allowed {
+		return
+	}
+	limit := parseLimit(c.Query("limit"), 100, 500)
+
+	items := []timelineItem{{
+		At:     device.CreatedAt,
+		Type:   "device",
+		Title:  "device_created",
+		Detail: map[string]any{"key": device.Key, "product": device.ProductID},
+	}}
+
+	// Thing-model + lifecycle events.
+	var events []models.DeviceEvent
+	h.DB.WithContext(c).Where("device_id = ?", device.ID).Order("occurred_at DESC").Limit(limit).Find(&events)
+	for _, e := range events {
+		items = append(items, timelineItem{
+			At: e.OccurredAt, Type: "event", Title: e.Type,
+			Identifier: e.Identifier, Detail: map[string]any{"payload": e.Payload},
+		})
+	}
+
+	// Shadow changes.
+	var shadows []models.DeviceShadowLog
+	h.DB.WithContext(c).Where("device_id = ?", device.ID).Order("occurred_at DESC").Limit(limit).Find(&shadows)
+	for _, s := range shadows {
+		items = append(items, timelineItem{
+			At: s.OccurredAt, Type: "shadow", Title: "shadow_changed", Source: s.Source,
+			Detail: map[string]any{"desired": s.Desired, "reported": s.Reported, "delta": s.Delta},
+		})
+	}
+
+	// Downlinks.
+	var dl []models.DeviceDownlinkLog
+	h.DB.WithContext(c).Where("device_id = ?", device.ID).Order("occurred_at DESC").Limit(limit).Find(&dl)
+	for _, d := range dl {
+		items = append(items, timelineItem{
+			At: d.OccurredAt, Type: "downlink", Title: "downlink_" + d.Kind,
+			Identifier: d.Identifier, Source: d.Source, Status: d.Status,
+			Detail: map[string]any{
+				"payload": d.Payload,
+				"target":  d.Target,
+				"error":   d.Error,
+			},
+		})
+	}
+
+	// OTA task membership (dispatched / progress / result).
+	var ota []struct {
+		models.OTATaskDevice
+		TaskName string `gorm:"column:task_name"`
+	}
+	h.DB.WithContext(c).Table("ota_task_devices ot").
+		Select("ot.*, t.name AS task_name").
+		Joins("JOIN ota_tasks t ON t.id = ot.task_id").
+		Where("ot.device_id = ?", device.ID).
+		Order("ot.created_at DESC").Limit(limit).Find(&ota)
+	for _, o := range ota {
+		items = append(items, timelineItem{
+			At: o.CreatedAt, Type: "ota", Title: "ota_" + o.OTATaskDevice.Status,
+			Source: models.DownlinkSourceOTA, Status: o.OTATaskDevice.Status,
+			Detail: map[string]any{
+				"task": o.TaskName, "taskId": o.TaskID,
+				"progress": o.Progress, "message": o.Message,
+			},
+		})
+	}
+
+	sort.Slice(items, func(i, j int) bool { return items[i].At.After(items[j].At) })
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	ok(c, items)
+}
+
+// parseLimit parses a page-size query parameter with a default and a cap.
+func parseLimit(raw string, def, cap int) int {
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return def
+	}
+	if n > cap {
+		return cap
+	}
+	return n
 }
 
 type commandRequest struct {

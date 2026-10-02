@@ -225,6 +225,24 @@ Every desired/reported change is written to `device_shadow_logs` with its
 source (`api`, `rule`, `telemetry`), so the DeviceDetail → Shadow tab shows a
 complete audit trail.
 
+## Device timeline & downlink journal
+
+Every device detail page has a **Timeline** view merging device creation,
+online/offline transitions, thing-model events, shadow changes, downlinks and
+OTA progress into one reverse-chronological feed with per-type filters:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/devices/:id/timeline` | unified timeline (device / event / shadow / downlink / ota) |
+| `GET` | `/api/v1/devices/:id/downlinks` | downlink journal (API, batch, rule, shadow delta, OTA) |
+| `GET` | `/api/v1/devices/:id/events?q=&limit=` | events with keyword search (identifier / type / payload text) |
+
+Downlinks are journaled centrally in `device_downlink_logs` by the
+`DownlinkService`, so every platform-originated message — API command, batch
+command, rule action, shadow delta push and OTA dispatch — is traceable with
+its result. Lifecycle transitions are journaled to `device_events`, so the
+timeline shows exactly when a device came online / went offline.
+
 ## OTA firmware upgrade
 
 Firmware is uploaded per product and rolled out to devices:

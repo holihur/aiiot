@@ -516,7 +516,7 @@ func (e *RuleEngine) runDownlink(ctx context.Context, action map[string]any, ev 
 		kind = access.UplinkKind(k)
 	}
 	identifier, _ := action["identifier"].(string)
-	meta := map[string]string{"rule": fmt.Sprint(action["ruleId"]), "source": "rule_engine"}
+	meta := map[string]string{"rule": fmt.Sprint(action["ruleId"]), "source": models.DownlinkSourceRule}
 
 	// Target: explicit deviceKey (within the same workspace) or the source device.
 	if dk, ok := action["deviceKey"].(string); ok && dk != "" && dk != ev.DeviceKey {
