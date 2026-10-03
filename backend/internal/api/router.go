@@ -141,12 +141,14 @@ func NewRouter(h *Handlers) *gin.Engine {
 	// Administration area: isolated audience (admin token only).
 	admin := api.Group("/admin")
 	admin.POST("/auth/login", h.AdminLogin)
-	admin.GET("/auth/totp/status", h.AdminTOTPStatus)
+	// Auth + audit apply to everything below, so TOTP setup/enable/disable and
+	// password changes are both protected and recorded in audit_logs.
 	admin.Use(middleware.AdminAuth(h.Tokens))
+	admin.Use(middleware.Audit(h.DB))
+	admin.GET("/auth/totp/status", h.AdminTOTPStatus)
 	admin.POST("/auth/totp/setup", h.AdminTOTPSetup)
 	admin.POST("/auth/totp/enable", h.AdminTOTPEnable)
 	admin.POST("/auth/totp/disable", h.AdminTOTPDisable)
-	admin.Use(middleware.Audit(h.DB))
 	admin.GET("/auth/me", h.AdminMe)
 	admin.POST("/auth/password", h.AdminChangePassword)
 	admin.GET("/gateways", h.ListGateways)

@@ -40,6 +40,9 @@ func (h *Handlers) AdminTOTPSetup(c *gin.Context) {
 		return
 	}
 	url := totp.ProvisioningURL("aiiot", admin.Username, secret)
+	if h.Log != nil {
+		h.Log.Info("admin totp setup", "user", admin.Username)
+	}
 	ok(c, gin.H{"secret": secret, "otpauthUrl": url, "period": totp.Period, "enabled": false})
 }
 
@@ -65,6 +68,9 @@ func (h *Handlers) AdminTOTPEnable(c *gin.Context) {
 	if !totp.Verify(secret, body.Code, 1) {
 		fail(c, http.StatusBadRequest, "invalid code")
 		return
+	}
+	if h.Log != nil {
+		h.Log.Info("admin totp enabled", "user", admin.Username)
 	}
 	if err := h.DB.Model(&admin).Updates(map[string]any{"totp_enabled": true}).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())
@@ -101,6 +107,9 @@ func (h *Handlers) AdminTOTPDisable(c *gin.Context) {
 	}).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if h.Log != nil {
+		h.Log.Info("admin totp disabled", "user", admin.Username)
 	}
 	ok(c, gin.H{"enabled": false})
 }

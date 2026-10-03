@@ -73,13 +73,33 @@ func (c *Client) ReadRegisters(unit byte, fn byte, addr uint16, count uint16) ([
 	if fn != fnReadHolding && fn != fnReadInput {
 		return nil, fmt.Errorf("unsupported read function 0x%02x", fn)
 	}
-	var pdu []byte
-	if fn == fnReadHolding {
-		pdu = buildReadPDU(fnReadHolding, addr, count)
-	} else {
-		pdu = buildReadPDU(fnReadInput, addr, count)
+	if count == 0 {
+		return []uint16{}, nil
 	}
-	resp, err := c.transact(unit, pdu)
+	// Modbus TCP caps a single read at 125 registers; larger reads are split
+	// into chunks of at most 125 registers (big-endian word order preserved).
+	const chunk = 125
+	out := make([]uint16, 0, count)
+	for off := uint16(0); off < count; off += chunk {
+		n := count - off
+		if n > chunk {
+			n = chunk
+		}
+		words, err := c.readChunk(unit, fn, addr+off, n)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, words...)
+	}
+	if len(out) != int(count) {
+		return nil, fmt.Errorf("expected %d registers, got %d", count, len(out))
+	}
+	return out, nil
+}
+
+// readChunk performs one no-more-than-125-register read.
+func (c *Client) readChunk(unit byte, fn byte, addr, count uint16) ([]uint16, error) {
+	resp, err := c.transact(unit, buildReadPDU(fn, addr, count))
 	if err != nil {
 		return nil, err
 	}
@@ -87,14 +107,14 @@ func (c *Client) ReadRegisters(unit byte, fn byte, addr uint16, count uint16) ([
 		return nil, fmt.Errorf("bad read response length")
 	}
 	payload := resp[2:]
-	out := make([]uint16, 0, len(payload)/2)
+	words := make([]uint16, 0, len(payload)/2)
 	for i := 0; i+1 < len(payload); i += 2 {
-		out = append(out, binary.BigEndian.Uint16(payload[i:i+2]))
+		words = append(words, binary.BigEndian.Uint16(payload[i:i+2]))
 	}
-	if len(out) != int(count) {
-		return nil, fmt.Errorf("expected %d registers, got %d", count, len(out))
+	if len(words) != int(count) {
+		return nil, fmt.Errorf("expected %d registers, got %d", count, len(words))
 	}
-	return out, nil
+	return words, nil
 }
 
 // WriteSingle writes one holding register (function 0x06).

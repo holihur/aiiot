@@ -111,3 +111,60 @@ func TestWriteMultiFrame(t *testing.T) {
 		t.Fatalf("write multi: %v", err)
 	}
 }
+
+func TestEncodeForTypeWords(t *testing.T) {
+	if w := encodeForType("int16", -5); len(w) != 1 || w[0] != 0xFFFB {
+		t.Fatalf("int16 words: %v", w)
+	}
+	if w := encodeForType("bool", 1); len(w) != 1 || w[0] != 1 {
+		t.Fatalf("bool words: %v", w)
+	}
+	w := encodeForType("float32", 1.5)
+	if len(w) != 2 || w[0] != 0x3FC0 || w[1] != 0x0000 {
+		t.Fatalf("float32 words: %x", w)
+	}
+	u := encodeForType("uint32", 0x12345678)
+	if len(u) != 2 || u[0] != 0x1234 || u[1] != 0x5678 {
+		t.Fatalf("uint32 words: %x", u)
+	}
+}
+
+func TestReadRegistersChunked(t *testing.T) {
+	// fake server answers 200 registers per request: emit count registers
+	// (0x0100+i) per frame.
+	fake := newFakeModbusServer(t, func(req []byte) []byte {
+		unit, fn := req[6], req[7]
+		if fn == fnReadHolding {
+			count := int(req[10])<<8 | int(req[11])
+			if count > 125 {
+				return nil
+			}
+			base := int(req[8])<<8 | int(req[9])
+			data := make([]byte, count*2)
+			for i := 0; i < count; i++ {
+				w := 0x0100 + base + i
+				data[i*2] = byte(w >> 8)
+				data[i*2+1] = byte(w)
+			}
+			return append([]byte{fn, byte(count * 2)}, data...)
+		}
+		_ = unit
+		return nil
+	}, 8)
+	defer fake.Close()
+	c, err := Dial(fake.host, fake.port, 2*time.Second)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer c.Close()
+	words, err := c.ReadRegisters(1, fnReadHolding, 0, 200)
+	if err != nil {
+		t.Fatalf("chunked read: %v", err)
+	}
+	if len(words) != 200 {
+		t.Fatalf("got %d words, want 200", len(words))
+	}
+	if words[0] != 0x0100 || words[199] != 0x01C7 {
+		t.Fatalf("word bounds wrong: %#x .. %#x", words[0], words[199])
+	}
+}

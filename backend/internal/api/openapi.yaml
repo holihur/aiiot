@@ -8,6 +8,10 @@ info:
       it as `Authorization: Bearer <token>` on all other endpoints.
     - M2M note: this document is also used to generate the official SDKs
       (`sdk/python`, `sdk/ts`).
+    - wire protocols (mqtt/coap/custom/modbus/opcua) are terminated by the
+      protocol gateways; the management API tracks product+device, not the
+      wire. Modbus/OPC-UA products poll servers via their gateways
+      (MODBUS_CONFIG_FILE / OPCUA_CONFIG_FILE device tables).
 servers:
   - url: /api/v1
 security:
@@ -44,7 +48,7 @@ components:
         id: { type: integer }
         key: { type: string }
         name: { type: string }
-        protocol: { type: string, enum: [mqtt, coap, custom, modbus] }
+        protocol: { type: string, enum: [mqtt, coap, custom, modbus, opcua] }
         status: { type: string, enum: [draft, published, archived] }
     ThingModel:
       type: object
@@ -113,6 +117,7 @@ components:
         name: { type: string }
         enabled: { type: boolean }
         triggerType: { type: string }
+        cron: { type: string, description: "5-field schedule for triggerType=schedule" }
         condition: { type: string }
         priority: { type: integer }
     Alert:
@@ -251,7 +256,7 @@ paths:
               properties:
                 key: { type: string }
                 name: { type: string }
-                protocol: { type: string, enum: [mqtt, coap, custom, modbus] }
+                protocol: { type: string, enum: [mqtt, coap, custom, modbus, opcua] }
                 description: { type: string }
       responses:
         "201": { $ref: "#/components/responses/Created" }

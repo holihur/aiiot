@@ -183,11 +183,11 @@ func (a *Adapter) Downlink(ctx context.Context, msg *access.DownlinkMessage) err
 	if body.Address != nil {
 		addr = *body.Address
 	}
-	raw := encodeForType(reg.Type, *body.Value)
+	words := encodeForType(reg.Type, *body.Value)
 	if reg.Type == "bool" {
-		raw = 0
+		words = []uint16{0}
 		if *body.Value != 0 {
-			raw = 1
+			words[0] = 1
 		}
 	}
 
@@ -196,25 +196,43 @@ func (a *Adapter) Downlink(ctx context.Context, msg *access.DownlinkMessage) err
 		return fmt.Errorf("modbus dial: %w", err)
 	}
 	defer c.Close()
-	if err := c.WriteSingle(d.UnitID, addr, raw); err != nil {
-		return fmt.Errorf("modbus write: %w", err)
+	var werr error
+	if len(words) > 1 {
+		// 32-bit types (int32/uint32/float32) span two registers: write both
+		// in a single WriteMultiple so the low word is not lost.
+		werr = c.WriteMultiple(d.UnitID, addr, words)
+	} else {
+		werr = c.WriteSingle(d.UnitID, addr, words[0])
 	}
-	a.log.Info("modbus register written", "device", d.DeviceKey, "register", msg.Identifier, "address", addr, "value", raw)
+	if werr != nil {
+		return fmt.Errorf("modbus write: %w", werr)
+	}
+	a.log.Info("modbus register written", "device", d.DeviceKey, "register", msg.Identifier, "address", addr, "value", *body.Value)
 	return nil
 }
 
-func encodeForType(t string, v float64) uint16 {
+// encodeForType splits a value into big-endian register words for the
+// configured type (1 word for 16-bit/bool, 2 for 32-bit types).
+func encodeForType(t string, v float64) []uint16 {
 	switch t {
 	case "int16":
-		return uint16(int16(v))
+		return []uint16{uint16(int16(v))}
+	case "bool":
+		if v != 0 {
+			return []uint16{1}
+		}
+		return []uint16{0}
 	case "uint32":
-		return uint16(uint32(v) >> 16)
+		u := uint32(v)
+		return []uint16{uint16(u >> 16), uint16(u)}
 	case "int32":
-		return uint16(int32(v) >> 16)
+		u := uint32(int32(v))
+		return []uint16{uint16(u >> 16), uint16(u)}
 	case "float32":
-		return uint16(math.Float32bits(float32(v)) >> 16)
-	default:
-		return uint16(v)
+		u := math.Float32bits(float32(v))
+		return []uint16{uint16(u >> 16), uint16(u)}
+	default: // uint16 / plain
+		return []uint16{uint16(v)}
 	}
 }
 
