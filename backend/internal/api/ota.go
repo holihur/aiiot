@@ -96,8 +96,9 @@ func (h *Handlers) ListFirmwares(c *gin.Context) {
 	if _, allowed := h.loadProduct(c, productID); !allowed {
 		return
 	}
+	limit := parseLimit(c.Query("limit"), 50, 500)
 	var rows []models.Firmware
-	if err := h.DB.WithContext(c).Where("product_id = ?", productID).Order("id DESC").Find(&rows).Error; err != nil {
+	if err := h.DB.WithContext(c).Where("product_id = ?", productID).Order("id DESC").Limit(limit).Find(&rows).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}

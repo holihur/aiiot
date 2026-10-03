@@ -464,10 +464,11 @@ func (h *Handlers) ListThingModelVersions(c *gin.Context) {
 		CreatedBy   uint      `json:"createdBy"`
 		PublishedAt time.Time `json:"publishedAt"`
 	}
+	limit := parseLimit(c.Query("limit"), 50, 500)
 	h.DB.WithContext(c).Model(&models.ThingModelVersion{}).
 		Select("id, version, created_by, published_at").
 		Where("thing_model_id = ?", tm.ID).
-		Order("published_at DESC").Scan(&vs)
+		Order("published_at DESC").Limit(limit).Scan(&vs)
 	ok(c, vs)
 }
 

@@ -110,8 +110,9 @@ func (h *Handlers) ListWorkspaceDevices(c *gin.Context) {
 		return
 	}
 	var devices []models.Device
+	limit := parseLimit(c.Query("limit"), 100, 1000)
 	if err := h.DB.WithContext(c).Where("workspace_id = ?", ws.ID).
-		Preload("Product").Order("id DESC").Find(&devices).Error; err != nil {
+		Preload("Product").Order("id DESC").Limit(limit).Find(&devices).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}

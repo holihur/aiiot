@@ -131,9 +131,11 @@ func (h *Handlers) ListGroupDevices(c *gin.Context) {
 	for _, m := range members {
 		ids = append(ids, m.DeviceID)
 	}
+	limit := parseLimit(c.Query("limit"), 100, 1000)
 	var devices []models.Device
 	if len(ids) > 0 {
-		h.DB.WithContext(c).Where("id IN ?", ids).Preload("Product").Preload("Workspace").Find(&devices)
+		h.DB.WithContext(c).Where("id IN ?", ids).Preload("Product").Preload("Workspace").
+			Order("id DESC").Limit(limit).Find(&devices)
 	}
 	ok(c, devices)
 }
