@@ -29,6 +29,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatNumber, formatTime } from "@/lib/utils";
 
+// SERIES_COLORS is the palette used for multi-metric chart lines.
+const SERIES_COLORS = [
+  "hsl(var(--primary))",
+  "#f59e0b",
+  "#10b981",
+  "#8b5cf6",
+  "#ef4444",
+  "#06b6d4",
+  "#ec4899",
+  "#84cc16",
+];
+
 function valueOf(v: LatestValue): string {
   if (v.numValue != null) return formatNumber(v.numValue, 3);
   if (v.boolValue != null) return v.boolValue ? "true" : "false";
@@ -138,34 +150,43 @@ export default function DeviceDetailPage() {
     }
   });
 
-  const [identifier, setIdentifier] = useState("");
+  const [identifiers, setIdentifiers] = useState<string[]>([]);
   const [interval, setInterval] = useState("1m");
   const [range, setRange] = useState("24h");
 
   const telemetry = useQuery({
-    queryKey: ["telemetry", deviceId, identifier, interval, range],
+    queryKey: ["telemetry", deviceId, identifiers, interval, range],
     queryFn: () =>
       api.telemetry(deviceId, {
-        identifier: identifier || undefined,
+        identifiers: identifiers,
         interval: interval === "raw" ? undefined : interval,
         from: new Date(Date.now() - Number(range.replace("h", "").replace("d", "")) * (range.endsWith("d") ? 86400000 : 3600000)).toISOString(),
         to: new Date().toISOString(),
         limit: 5000,
       }),
-    enabled: !!identifier,
+    enabled: identifiers.length > 0,
   });
 
+  // chart rows: one entry per time bucket with a column per selected series
   const chartData = useMemo(() => {
     const pts = telemetry.data?.points ?? [];
-    return pts
-      .map((p: TelemetryPoint) => ({
-        t: new Date(p.bucket ?? p.time ?? 0).toLocaleTimeString(),
-        value: p.avg ?? p.numValue ?? null,
-        min: p.min,
-        max: p.max,
-      }))
-      .reverse();
-  }, [telemetry.data]);
+    const rows = new Map<string, Record<string, unknown>>();
+    for (const p of pts) {
+      const val = p.avg ?? p.numValue;
+      if (val == null) continue; // non-numeric series cannot be plotted
+      const t = new Date(p.bucket ?? p.time ?? 0).toLocaleString();
+      const id = p.identifier ?? "value";
+      if (!rows.has(t)) rows.set(t, { t });
+      rows.get(t)![id] = val;
+    }
+    const series = [
+      ...new Set(pts.map((p) => p.identifier ?? "value").filter((id) => identifiers.includes(id))),
+    ];
+    return { rows: [...rows.values()].reverse(), series };
+  }, [telemetry.data, identifiers]);
+
+  const toggleIdentifier = (id: string, on: boolean) =>
+    setIdentifiers((cur) => (on ? [...cur, id] : cur.filter((x) => x !== id)));
 
   const [commandKind, setCommandKind] = useState("property");
   const [commandIdentifier, setCommandIdentifier] = useState("");
@@ -330,19 +351,23 @@ export default function DeviceDetailPage() {
           <Card>
             <CardHeader className="flex flex-row flex-wrap items-end gap-3">
               <div className="space-y-2">
-                <Label>{t("common.identifier")}</Label>
-                <Select value={identifier} onValueChange={setIdentifier}>
-                  <SelectTrigger className="w-48">
-                    <SelectValue placeholder={t("device.selectIdentifier")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(latest.data ?? []).map((v) => (
-                      <SelectItem key={v.identifier} value={v.identifier}>
-                        {v.identifier}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>{t("common.identifier")} <span className="text-xs text-muted-foreground">(multi)</span></Label>
+                <div className="flex max-w-72 flex-wrap gap-x-4 gap-y-1 rounded-md border p-2">
+                  {(latest.data ?? []).map((v) => (
+                    <label key={v.identifier} className="flex cursor-pointer items-center gap-1.5 text-sm">
+                      <input
+                        type="checkbox"
+                        className="accent-primary"
+                        checked={identifiers.includes(v.identifier)}
+                        onChange={(e) => toggleIdentifier(v.identifier, e.target.checked)}
+                      />
+                      {v.identifier}
+                    </label>
+                  ))}
+                  {(latest.data ?? []).length === 0 && (
+                    <span className="text-xs text-muted-foreground">{t("device.latestEmpty")}</span>
+                  )}
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>{t("device.interval")}</Label>
@@ -378,18 +403,27 @@ export default function DeviceDetailPage() {
               {telemetry.data?.source && <Badge variant="outline">source: {telemetry.data.source}</Badge>}
             </CardHeader>
             <CardContent>
-              {!identifier ? (
+              {identifiers.length === 0 ? (
                 <p className="py-10 text-center text-sm text-muted-foreground">{t("device.selectIdentifier")}</p>
-              ) : chartData.length === 0 ? (
+              ) : chartData.rows.length === 0 ? (
                 <p className="py-10 text-center text-sm text-muted-foreground">{t("device.noData")}</p>
               ) : (
                 <ResponsiveContainer width="100%" height={340}>
-                  <LineChart data={chartData}>
+                  <LineChart data={chartData.rows}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                     <XAxis dataKey="t" fontSize={12} />
                     <YAxis fontSize={12} />
                     <Tooltip />
-                    <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" dot={false} strokeWidth={2} />
+                    {chartData.series.map((id, i) => (
+                      <Line
+                        key={id}
+                        type="monotone"
+                        dataKey={id}
+                        stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+                        dot={false}
+                        strokeWidth={2}
+                      />
+                    ))}
                   </LineChart>
                 </ResponsiveContainer>
               )}

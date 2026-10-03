@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"strconv"
 	"sync"
@@ -11,8 +10,9 @@ import (
 
 	"github.com/aiiot/server/internal/config"
 	"github.com/aiiot/server/internal/models"
+	"github.com/aiiot/server/internal/tsdb"
+	"github.com/aiiot/server/internal/tsdb/pg"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // Sample is a coerced telemetry value ready for persistence.
@@ -114,32 +114,41 @@ func toBool(v any) (bool, bool) {
 	return false, false
 }
 
-// TelemetryService persists time-series samples into the partitioned
-// PostgreSQL table and maintains a latest-value cache.
+// TelemetryService buffers and persists time-series samples and answers
+// queries. All storage goes through the tsdb.Store backend, so the service
+// (and every caller) is backend-agnostic: PostgreSQL today, TimescaleDB or a
+// dedicated TSDB tomorrow.
 type TelemetryService struct {
-	db  *gorm.DB
-	cfg config.TelemetryConfig
-	log *slog.Logger
+	store tsdb.Store
+	cfg   config.TelemetryConfig
+	log   *slog.Logger
+
+	rollup tsdb.RollupStore // nil when the backend has no hourly rollup
 
 	ch        chan *models.Telemetry
 	wg        sync.WaitGroup
 	closeOnce sync.Once
 }
 
-func NewTelemetryService(db *gorm.DB, cfg config.TelemetryConfig, log *slog.Logger) *TelemetryService {
+func NewTelemetryService(store tsdb.Store, cfg config.TelemetryConfig, log *slog.Logger) *TelemetryService {
 	if cfg.WriteBatchSize <= 0 {
 		cfg.WriteBatchSize = 512
 	}
 	if cfg.WriteFlushEvery <= 0 {
 		cfg.WriteFlushEvery = 2 * time.Second
 	}
+	rollup, _ := store.(tsdb.RollupStore)
 	return &TelemetryService{
-		db:  db,
-		cfg: cfg,
-		log: log,
-		ch:  make(chan *models.Telemetry, cfg.WriteBatchSize*4),
+		store:  store,
+		cfg:    cfg,
+		log:    log,
+		rollup: rollup,
+		ch:     make(chan *models.Telemetry, cfg.WriteBatchSize*4),
 	}
 }
+
+// NewPG builds the default partitioned-PostgreSQL backend.
+func NewPG(db *gorm.DB) *pg.Store { return pg.New(db) }
 
 // Start launches the background flush loop.
 func (s *TelemetryService) Start(ctx context.Context) {
@@ -229,117 +238,150 @@ func (s *TelemetryService) persist(ctx context.Context, rows []*models.Telemetry
 	if len(rows) == 0 {
 		return nil
 	}
-	if err := s.db.WithContext(ctx).CreateInBatches(rows, 200).Error; err != nil {
-		return fmt.Errorf("insert telemetry: %w", err)
-	}
-	// A single flush batch can contain multiple samples for the same
-	// (device_id, identifier). PostgreSQL's ON CONFLICT DO UPDATE rejects a
-	// statement that touches the same row twice, so collapse to the newest.
-	latestByKey := make(map[string]*models.DeviceLatestValue, len(rows))
+	batch := make([]tsdb.Row, 0, len(rows))
 	for _, r := range rows {
-		key := fmt.Sprintf("%d\x00%s", r.DeviceID, r.Identifier)
-		if cur, ok := latestByKey[key]; ok && cur.UpdatedAt.After(r.Time) {
-			continue
-		}
-		latestByKey[key] = &models.DeviceLatestValue{
-			DeviceID:    r.DeviceID,
-			Identifier:  r.Identifier,
+		batch = append(batch, tsdb.Row{
+			Time:        r.Time,
 			ProjectID:   r.ProjectID,
 			WorkspaceID: r.WorkspaceID,
 			ProductID:   r.ProductID,
+			DeviceID:    r.DeviceID,
+			Identifier:  r.Identifier,
 			DataType:    r.DataType,
 			NumValue:    r.NumValue,
 			BoolValue:   r.BoolValue,
 			StrValue:    r.StrValue,
 			JSONValue:   r.JSONValue,
-			UpdatedAt:   r.Time,
-		}
+		})
 	}
-	latest := make([]*models.DeviceLatestValue, 0, len(latestByKey))
-	for _, v := range latestByKey {
-		latest = append(latest, v)
-	}
-	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "device_id"}, {Name: "identifier"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"project_id", "workspace_id", "product_id", "data_type",
-			"num_value", "bool_value", "str_value", "json_value", "updated_at",
-		}),
-	}).Create(&latest).Error
+	return s.store.Write(ctx, batch)
 }
 
 // RangeQuery filters a time-series query.
 type RangeQuery struct {
-	DeviceID   uint
-	Identifier string
-	From       time.Time
-	To         time.Time
-	Limit      int
+	DeviceID    uint
+	Identifier  string   // single identifier ("" = all)
+	Identifiers []string // multiple identifiers (overrides Identifier)
+	From        time.Time
+	To          time.Time
+	Limit       int
 }
 
-// QueryRange returns raw samples in [From, To).
+// QueryRange returns raw samples in [From, To), oldest first.
 func (s *TelemetryService) QueryRange(ctx context.Context, q RangeQuery) ([]models.Telemetry, error) {
 	if q.Limit <= 0 || q.Limit > 10000 {
 		q.Limit = 1000
 	}
-	tx := s.db.WithContext(ctx).Where("device_id = ?", q.DeviceID)
-	if q.Identifier != "" {
-		tx = tx.Where("identifier = ?", q.Identifier)
+	ids := q.Identifiers
+	if len(ids) == 0 && q.Identifier != "" {
+		ids = []string{q.Identifier}
 	}
-	if !q.From.IsZero() {
-		tx = tx.Where("time >= ?", q.From)
+	rows, err := s.store.QueryRange(ctx, tsdb.Query{
+		DeviceIDs:   []uint{q.DeviceID},
+		Identifiers: ids,
+		From:        q.From,
+		To:          q.To,
+		Limit:       q.Limit,
+	})
+	if err != nil {
+		return nil, err
 	}
-	if !q.To.IsZero() {
-		tx = tx.Where("time < ?", q.To)
+	out := make([]models.Telemetry, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, models.Telemetry{
+			Time:       r.Time,
+			DeviceID:   r.DeviceID,
+			Identifier: r.Identifier,
+			DataType:   r.DataType,
+			NumValue:   r.NumValue,
+			BoolValue:  r.BoolValue,
+			StrValue:   r.StrValue,
+			JSONValue:  r.JSONValue,
+		})
 	}
-	var out []models.Telemetry
-	err := tx.Order("time DESC").Limit(q.Limit).Find(&out).Error
-	return out, err
+	return out, nil
 }
 
 // Latest returns the cached most recent value per identifier for a device.
 func (s *TelemetryService) Latest(ctx context.Context, deviceID uint) ([]models.DeviceLatestValue, error) {
-	var out []models.DeviceLatestValue
-	err := s.db.WithContext(ctx).Where("device_id = ?", deviceID).Order("identifier").Find(&out).Error
-	return out, err
+	rows, err := s.store.Latest(ctx, deviceID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]models.DeviceLatestValue, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, models.DeviceLatestValue{
+			DeviceID:   deviceID,
+			Identifier: r.Key,
+			DataType:   r.DataType,
+			NumValue:   r.NumValue,
+			BoolValue:  r.BoolValue,
+			StrValue:   r.StrValue,
+			JSONValue:  r.JSONValue,
+			UpdatedAt:  r.UpdatedAt,
+		})
+	}
+	return out, nil
 }
 
-// AggregatePoint is one downsampled bucket.
+// AggregatePoint is one downsampled bucket for one identifier.
 type AggregatePoint struct {
-	Bucket time.Time `json:"bucket"`
-	Avg    *float64  `json:"avg"`
-	Min    *float64  `json:"min"`
-	Max    *float64  `json:"max"`
-	Count  int64     `json:"count"`
+	Bucket     time.Time `json:"bucket"`
+	Identifier string    `json:"identifier,omitempty"`
+	Avg        *float64  `json:"avg"`
+	Min        *float64  `json:"min"`
+	Max        *float64  `json:"max"`
+	Count      int64     `json:"count"`
 }
 
-// QueryAggregate downsamples numeric samples using PostgreSQL date_bin.
+// QueryAggregate downsamples numeric samples via the backend.
 func (s *TelemetryService) QueryAggregate(ctx context.Context, q RangeQuery, interval time.Duration) ([]AggregatePoint, error) {
-	if interval <= 0 {
-		interval = time.Minute
+	points, err := s.store.QueryAggregate(ctx, toTSQuery(q), interval)
+	if err != nil {
+		return nil, err
 	}
-	sql := `SELECT date_bin(?::interval, time, TIMESTAMPTZ '2000-01-01') AS bucket,
-	               avg(num_value) AS avg, min(num_value) AS min, max(num_value) AS max, count(*) AS count
-	        FROM telemetry_data
-	        WHERE device_id = ? AND identifier = ? AND time >= ? AND time < ?
-	        GROUP BY bucket ORDER BY bucket`
-	var out []AggregatePoint
-	err := s.db.WithContext(ctx).Raw(sql, interval.String(), q.DeviceID, q.Identifier, q.From, q.To).Scan(&out).Error
-	return out, err
+	return toServicePoints(points), nil
 }
 
-// QueryAggregateRollup reads the hourly materialized view instead of the raw
-// partitioned table. Only valid for intervals >= 1h (the rollup granularity).
+// QueryAggregateRollup reads the hourly materialized view when the backend
+// provides one; otherwise it falls back to QueryAggregate.
 func (s *TelemetryService) QueryAggregateRollup(ctx context.Context, q RangeQuery, interval time.Duration) ([]AggregatePoint, error) {
-	if interval < time.Hour {
-		interval = time.Hour
+	if s.rollup == nil {
+		return s.QueryAggregate(ctx, q, interval)
 	}
-	sql := `SELECT date_bin(?::interval, bucket, TIMESTAMPTZ '2000-01-01') AS bucket,
-	               avg(avg) AS avg, min(min) AS min, max(max) AS max, sum(count) AS count
-	        FROM telemetry_hourly
-	        WHERE device_id = ? AND identifier = ? AND bucket >= ? AND bucket < ?
-	        GROUP BY bucket ORDER BY bucket`
-	var out []AggregatePoint
-	err := s.db.WithContext(ctx).Raw(sql, interval.String(), q.DeviceID, q.Identifier, q.From, q.To).Scan(&out).Error
-	return out, err
+	points, err := s.rollup.QueryAggregateRollup(ctx, toTSQuery(q), interval)
+	if err != nil {
+		return nil, err
+	}
+	return toServicePoints(points), nil
+}
+
+// toTSQuery converts the service query shape to the backend-agnostic one.
+func toTSQuery(q RangeQuery) tsdb.Query {
+	ids := q.Identifiers
+	if len(ids) == 0 && q.Identifier != "" {
+		ids = []string{q.Identifier}
+	}
+	return tsdb.Query{
+		DeviceIDs:   []uint{q.DeviceID},
+		Identifiers: ids,
+		From:        q.From,
+		To:          q.To,
+		Limit:       q.Limit,
+	}
+}
+
+func toServicePoints(points []tsdb.Point) []AggregatePoint {
+	out := make([]AggregatePoint, 0, len(points))
+	for _, p := range points {
+		out = append(out, AggregatePoint{
+			Bucket:     p.Bucket,
+			Identifier: p.Identifier,
+			Avg:        p.Avg,
+			Min:        p.Min,
+			Max:        p.Max,
+			Count:      p.Count,
+		})
+	}
+	return out
 }

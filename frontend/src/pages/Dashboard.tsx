@@ -40,6 +40,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatNumber, formatTime, sinceText } from "@/lib/utils";
 
+const SERIES_COLORS = [
+  "hsl(var(--primary))",
+  "#f59e0b",
+  "#10b981",
+  "#8b5cf6",
+  "#ef4444",
+  "#06b6d4",
+  "#ec4899",
+  "#84cc16",
+];
+
 function statValue(v: LatestValue | undefined): string {
   if (!v) return "-";
   if (v.numValue != null) return formatNumber(v.numValue, 2);
@@ -119,45 +130,71 @@ function StatPanel({ panel, devices }: { panel: DashboardPanel; devices: Device[
 }
 
 function TrendPanel({ panel, devices }: { panel: DashboardPanel; devices: Device[] }) {
-  const deviceId = Number(panel.config?.deviceId ?? 0);
-  const identifier = String(panel.config?.identifier ?? "");
+  const singleId = Number(panel.config?.deviceId ?? 0);
+  const deviceIds =
+    (panel.config?.deviceIds as number[] | undefined)?.filter((d) => d > 0) ?? [singleId];
+  const identifiers =
+    (panel.config?.identifiers as string[] | undefined)?.filter((x) => x) ??
+    [String(panel.config?.identifier ?? "")];
   const range = String(panel.config?.range ?? "24h");
-  const dev = devices.find((d) => d.id === deviceId);
-  const telemetry = useQuery({
-    queryKey: ["telemetry", deviceId, identifier, range],
+  const dev = devices.find((d) => d.id === deviceIds[0]);
+  const key = JSON.stringify([deviceIds, identifiers, range]);
+  const compare = useQuery({
+    queryKey: ["compare", key],
     queryFn: () => {
       const hours = range === "7d" ? 168 : range === "1h" ? 1 : 24;
-      return api.telemetry(deviceId, {
-        identifier,
-        interval: range === "7d" ? "1h" : "1m",
+      return api.compare({
+        deviceIds,
+        identifiers,
+        interval: range === "7d" ? "1h" : range === "1h" ? "1m" : "5m",
         from: new Date(Date.now() - hours * 3600000).toISOString(),
         to: new Date().toISOString(),
       });
     },
-    enabled: !!deviceId && !!identifier,
+    enabled: deviceIds.length > 0 && identifiers.length > 0,
   });
-  const data = useMemo(() => {
-    const rows = telemetry.data?.points ?? [];
-    return rows
-      .map((p) => ({ t: new Date(p.bucket ?? p.time ?? 0).toLocaleTimeString(), value: p.avg ?? p.numValue ?? null }))
-      .reverse()
-      .slice(-120);
-  }, [telemetry.data]);
+  const label = (s: { deviceKey: string; identifier: string }) => `${s.deviceKey}/${s.identifier}`;
+  const chart = useMemo(() => {
+    const rows = new Map<string, Record<string, unknown>>();
+    for (const s of compare.data?.series ?? []) {
+      const k = label(s);
+      for (const p of s.points) {
+        if (p.v == null) continue;
+        const t = new Date(p.t).toLocaleString();
+        if (!rows.has(t)) rows.set(t, { t });
+        rows.get(t)![k] = p.v;
+      }
+    }
+    const order = [...rows.keys()].sort();
+    return { rows: order.map((t) => rows.get(t)!), series: (compare.data?.series ?? []).map(label) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compare.data]);
+  const header =
+    deviceIds.length > 1 || identifiers.length > 1
+      ? `${deviceIds.length} devices · ${identifiers.join(", ")} · ${range}`
+      : `${dev?.name ?? `#${deviceIds[0]}`} · ${identifiers[0]} · ${range}`;
   return (
     <div>
-      <div className="mb-2 text-xs text-muted-foreground">
-        {dev?.name ?? `#${deviceId}`} · {identifier} · {range}
-      </div>
-      {data.length === 0 ? (
+      <div className="mb-2 text-xs text-muted-foreground">{header}</div>
+      {chart.rows.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">no data</p>
       ) : (
         <ResponsiveContainer width="100%" height={200}>
-          <LineChart data={data}>
+          <LineChart data={chart.rows}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
             <XAxis dataKey="t" fontSize={10} tickCount={5} />
             <YAxis fontSize={10} width={44} />
             <Tooltip />
-            <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" dot={false} strokeWidth={2} />
+            {chart.series.map((k, i) => (
+              <Line
+                key={k}
+                type="monotone"
+                dataKey={k}
+                stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+                dot={false}
+                strokeWidth={2}
+              />
+            ))}
           </LineChart>
         </ResponsiveContainer>
       )}
@@ -491,6 +528,52 @@ export default function DashboardPage() {
                       onChange={(e) => setDraft({ ...draft, config: { ...draft.config, unit: e.target.value } })}
                     />
                   </div>
+                )}
+                {draft.type === "trend" && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>
+                        {t("dash.range")}
+                        <span className="ml-1 text-xs font-normal text-muted-foreground">(compare: pick more)</span>
+                      </Label>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                        compare devices
+                      </Label>
+                      <div className="flex max-h-28 flex-wrap gap-x-4 gap-y-1 overflow-auto rounded-md border p-2">
+                        {(devices.data ?? []).map((d) => (
+                          <label key={d.id} className="flex cursor-pointer items-center gap-1.5 text-xs">
+                            <input
+                              type="checkbox"
+                              className="accent-primary"
+                              checked={((draft.config?.deviceIds as number[] | undefined) ?? [draft.config?.deviceId])
+                                .includes(d.id)}
+                              onChange={(e) => {
+                                const cur = (draft.config?.deviceIds as number[] | undefined) ??
+                                  [Number(draft.config?.deviceId ?? 0)].filter((x) => x > 0);
+                                const next = e.target.checked
+                                  ? [...cur.filter((x) => x !== d.id), d.id]
+                                  : cur.filter((x) => x !== d.id);
+                                setDraft({ ...draft, config: { ...draft.config, deviceIds: next } });
+                              }}
+                            />
+                            {d.name}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">compare identifiers (comma)</Label>
+                      <Input
+                        defaultValue={((draft.config?.identifiers as string[] | undefined) ?? [String(draft.config?.identifier ?? "")])
+                          .join(",")}
+                        onChange={(e) =>
+                          setDraft({ ...draft, config: { ...draft.config, identifiers: e.target.value.split(",").map((x) => x.trim()).filter(Boolean) } })
+                        }
+                      />
+                    </div>
+                  </>
                 )}
                 {draft.type === "trend" && (
                   <div className="space-y-2">
