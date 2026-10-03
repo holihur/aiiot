@@ -280,6 +280,16 @@ func (h *Handlers) UpdateMember(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "invalid role")
 		return
 	}
+	var target models.ProjectMember
+	if err := h.DB.First(&target, "id = ? AND project_id = ?", memberID, id).Error; err != nil {
+		fail(c, http.StatusNotFound, "member not found")
+		return
+	}
+	// demoting the (only) owner would leave the project without an owner
+	if target.Role == models.ProjectRoleOwner && req.Role != models.ProjectRoleOwner && h.ownerCount(id) <= 1 {
+		fail(c, http.StatusBadRequest, "the project must keep at least one owner")
+		return
+	}
 	if err := h.DB.Model(&models.ProjectMember{}).Where("id = ? AND project_id = ?", memberID, id).
 		Update("role", req.Role).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())
@@ -300,11 +310,28 @@ func (h *Handlers) RemoveMember(c *gin.Context) {
 	if !h.requireProject(c, id, models.ProjectRoleAdmin) {
 		return
 	}
-	if err := h.DB.Where("id = ? AND project_id = ?", memberID, id).Delete(&models.ProjectMember{}).Error; err != nil {
+	var target models.ProjectMember
+	if err := h.DB.First(&target, "id = ? AND project_id = ?", memberID, id).Error; err != nil {
+		fail(c, http.StatusNotFound, "member not found")
+		return
+	}
+	if target.Role == models.ProjectRoleOwner && h.ownerCount(id) <= 1 {
+		fail(c, http.StatusBadRequest, "the project must keep at least one owner")
+		return
+	}
+	if err := h.DB.Delete(&models.ProjectMember{}, memberID).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 	ok(c, gin.H{"ok": true})
+}
+
+// ownerCount returns how many owner members a project currently has.
+func (h *Handlers) ownerCount(projectID uint) int64 {
+	var n int64
+	h.DB.Model(&models.ProjectMember{}).
+		Where("project_id = ? AND role = ?", projectID, models.ProjectRoleOwner).Count(&n)
+	return n
 }
 
 // --- workspaces -----------------------------------------------------------
