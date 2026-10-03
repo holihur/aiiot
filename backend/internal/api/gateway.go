@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -15,7 +16,9 @@ import (
 // gatewayAuth protects the internal gateway protocol endpoints.
 func (h *Handlers) gatewayAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if c.GetHeader("X-Gateway-Token") != h.GatewayToken {
+		got := c.GetHeader("X-Gateway-Token")
+		if len(got) != len(h.GatewayToken) ||
+			subtle.ConstantTimeCompare([]byte(got), []byte(h.GatewayToken)) != 1 {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid gateway token"})
 			return
 		}

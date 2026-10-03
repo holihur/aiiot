@@ -30,7 +30,13 @@ func NewRouter(h *Handlers) *gin.Engine {
 	api.GET("/openapi.yaml", h.OpenAPISpec)
 	api.POST("/auth/register", middleware.RateLimit(registerRL, middleware.ClientKey), h.Register)
 	api.POST("/auth/login", middleware.RateLimit(loginRL, middleware.ClientKey), h.Login)
-	api.POST("/ingest/:productKey/:deviceKey", h.HTTPIngest)
+	// Device direct-HTTP ingest is rate-limited per device so a compromised
+	// or abusive device cannot flood the core.
+	ingestRL := middleware.NewRateLimiter(time.Minute, 600)
+	api.POST("/ingest/:productKey/:deviceKey",
+		middleware.RateLimit(ingestRL, func(c *gin.Context) string {
+			return c.Param("deviceKey")
+		}), h.HTTPIngest)
 
 	auth := api.Group("", middleware.Auth(h.Tokens))
 	auth.Use(middleware.Audit(h.DB))

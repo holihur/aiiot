@@ -182,7 +182,7 @@ Postman/Insomnia or generate clients). Official zero-dependency SDKs live in
 
 See `docs/api.md` for examples and protocol notes. See `docs/scaling.md`
 for the scaling envelope, TimescaleDB migration steps and durable-MQTT
-options.
+options. Security posture and review findings: .
 
 ## Default ports
 

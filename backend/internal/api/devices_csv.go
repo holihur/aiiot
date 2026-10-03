@@ -60,6 +60,10 @@ func (h *Handlers) ImportDevices(c *gin.Context) {
 		fail(c, http.StatusBadRequest, "missing file (field \"file\")")
 		return
 	}
+	if file.Size > 1<<20 { // 1 MiB: a device table is a few hundred rows
+		fail(c, http.StatusRequestEntityTooLarge, "csv exceeds the 1 MiB import limit")
+		return
+	}
 	fh, err := file.Open()
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())
