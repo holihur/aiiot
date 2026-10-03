@@ -14,7 +14,18 @@ export default defineConfig({
       ? path.resolve(__dirname, process.env.VITE_OUT_DIR)
       : path.resolve(__dirname, "../backend/web/dist"),
     emptyOutDir: true,
-    chunkSizeWarningLimit: 1500,
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        // Split framework/third-party chunks so the entry file stays small and
+        // vendor files are cached independently across deploys.
+        manualChunks: {
+          vendor: ["react", "react-dom", "react-router-dom"],
+          query: ["@tanstack/react-query"],
+          charts: ["recharts"],
+        },
+      },
+    },
   },
   server: {
     port: 5173,

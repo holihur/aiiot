@@ -1,28 +1,29 @@
+import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "./lib/auth";
 import { getAdminToken } from "./lib/api";
 import { AppLayout } from "./components/layout/AppLayout";
 import { AdminLayout } from "./components/layout/AdminLayout";
-import LoginPage from "./pages/Login";
-import RegisterPage from "./pages/Register";
-import AdminLoginPage from "./pages/AdminLogin";
-import AdminSecurityPage from "./pages/AdminSecurity";
-import DashboardPage from "./pages/Dashboard";
-import ProjectsPage from "./pages/Projects";
-import ProjectDetailPage from "./pages/ProjectDetail";
-import ProductsPage from "./pages/Products";
-import ProductDetailPage from "./pages/ProductDetail";
-import DevicesPage from "./pages/Devices";
-import DeviceDetailPage from "./pages/DeviceDetail";
-import RulesPage from "./pages/Rules";
-import OtaPage from "./pages/Ota";
-import AlertsPage from "./pages/Alerts";
-import StoragePage from "./pages/Storage";
-import GroupsPage from "./pages/Groups";
-import AuditPage from "./pages/Audit";
-import GatewaysPage from "./pages/Gateways";
-import NatsPage from "./pages/Nats";
+const LoginPage = lazy(() => import("./pages/Login"));
+const RegisterPage = lazy(() => import("./pages/Register"));
+const AdminLoginPage = lazy(() => import("./pages/AdminLogin"));
+const AdminSecurityPage = lazy(() => import("./pages/AdminSecurity"));
+const DashboardPage = lazy(() => import("./pages/Dashboard"));
+const ProjectsPage = lazy(() => import("./pages/Projects"));
+const ProjectDetailPage = lazy(() => import("./pages/ProjectDetail"));
+const ProductsPage = lazy(() => import("./pages/Products"));
+const ProductDetailPage = lazy(() => import("./pages/ProductDetail"));
+const DevicesPage = lazy(() => import("./pages/Devices"));
+const DeviceDetailPage = lazy(() => import("./pages/DeviceDetail"));
+const RulesPage = lazy(() => import("./pages/Rules"));
+const OtaPage = lazy(() => import("./pages/Ota"));
+const AlertsPage = lazy(() => import("./pages/Alerts"));
+const StoragePage = lazy(() => import("./pages/Storage"));
+const GroupsPage = lazy(() => import("./pages/Groups"));
+const AuditPage = lazy(() => import("./pages/Audit"));
+const GatewaysPage = lazy(() => import("./pages/Gateways"));
+const NatsPage = lazy(() => import("./pages/Nats"));
 
 function FullPageLoader() {
   return (
@@ -48,7 +49,8 @@ function RequireAdminToken({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <Routes>
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/admin/login" element={<AdminLoginPage />} />
@@ -97,5 +99,17 @@ export default function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </Suspense>
+  );
+}
+
+
+// PageLoader is a lightweight full-screen loading state shown while a
+// route chunk is being fetched.
+function PageLoader() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+    </div>
   );
 }
