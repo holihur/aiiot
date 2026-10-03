@@ -10,7 +10,7 @@ import (
 
 type channelRequest struct {
 	Name        string         `json:"name" binding:"required,max=160"`
-	Type        string         `json:"type" binding:"required,oneof=webhook dingtalk email"`
+	Type        string         `json:"type" binding:"required,oneof=webhook dingtalk wecom lark email"`
 	Enabled     *bool          `json:"enabled"`
 	Config      models.JSONMap `json:"config"`
 	Description string         `json:"description"`

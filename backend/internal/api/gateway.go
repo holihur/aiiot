@@ -8,6 +8,7 @@ import (
 	"github.com/aiiot/server/internal/access"
 	"github.com/aiiot/server/internal/gateway"
 	"github.com/aiiot/server/internal/middleware"
+	"github.com/aiiot/server/internal/models"
 	"github.com/gin-gonic/gin"
 )
 
@@ -81,6 +82,26 @@ func (h *Handlers) GatewayUplink(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusAccepted, gin.H{"accepted": true})
+}
+
+// GatewayPSK returns the DTLS-PSK secret for a device so a gateway can derive
+// the pre-shared key during the handshake. Internal endpoint (gateway token).
+func (h *Handlers) GatewayPSK(c *gin.Context) {
+	key := c.Query("deviceKey")
+	if key == "" {
+		fail(c, http.StatusBadRequest, "deviceKey required")
+		return
+	}
+	var device models.Device
+	if err := h.DB.Where("key = ?", key).First(&device).Error; err != nil {
+		fail(c, http.StatusNotFound, "unknown device")
+		return
+	}
+	if device.Secret == "" {
+		fail(c, http.StatusNotFound, "device has no secret")
+		return
+	}
+	ok(c, gin.H{"psk": device.Secret})
 }
 
 // ListGateways returns the live gateway instances registered with the core.

@@ -1,0 +1,39 @@
+{
+  "devices": [
+    {
+      "deviceKey": "plc-line1",
+      "host": "127.0.0.1",
+      "port": 1502,
+      "unitId": 1,
+      "pollEvery": "5s",
+      "registers": [
+        {
+          "identifier": "temperature",
+          "fn": "holding",
+          "address": 0,
+          "type": "int16",
+          "scale": 0.1
+        },
+        {
+          "identifier": "pressure",
+          "fn": "input",
+          "address": 2,
+          "type": "float32"
+        },
+        {
+          "identifier": "motor",
+          "fn": "holding",
+          "address": 10,
+          "type": "bool"
+        },
+        {
+          "identifier": "wh",
+          "fn": "holding",
+          "address": 20,
+          "type": "uint32"
+        }
+      ],
+      "secret": "2db20d53be3016ee5071e278fa2b15d8"
+    }
+  ]
+}

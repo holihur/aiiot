@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aiiot/server/internal/metrics"
 	"github.com/aiiot/server/internal/models"
 	"gorm.io/gorm"
 )
@@ -198,6 +199,10 @@ func (n *Notifier) deliverAndLog(ctx context.Context, ch *models.NotifyChannel, 
 		err = n.sendWebhook(ctx, ch, title, body)
 	case ch.Type == models.ChannelDingTalk:
 		err = n.sendDingTalk(ctx, ch, title, body)
+	case ch.Type == models.ChannelWeCom:
+		err = n.sendWeCom(ctx, ch, title, body)
+	case ch.Type == models.ChannelLark:
+		err = n.sendLark(ctx, ch, title, body)
 	case ch.Type == models.ChannelEmail:
 		err = n.sendEmail(ch, title, body)
 	default:
@@ -233,26 +238,15 @@ func (n *Notifier) sendWebhook(ctx context.Context, ch *models.NotifyChannel, ti
 	if method == "" {
 		method = http.MethodPost
 	}
-	payload, _ := json.Marshal(map[string]any{"title": title, "body": body, "channel": ch.Name})
-	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
+	payload := map[string]any{"title": title, "body": body, "channel": ch.Name}
+	var hdr http.Header
 	if headers, ok := ch.Config["headers"].(map[string]any); ok {
+		hdr = make(http.Header, len(headers))
 		for k, v := range headers {
-			req.Header.Set(k, strVal(v))
+			hdr.Set(k, strVal(v))
 		}
 	}
-	resp, err := n.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("webhook status %d", resp.StatusCode)
-	}
-	return nil
+	return n.postJSON(ctx, url, method, payload, "webhook", hdr)
 }
 
 func (n *Notifier) sendDingTalk(ctx context.Context, ch *models.NotifyChannel, title, body string) error {
@@ -267,24 +261,117 @@ func (n *Notifier) sendDingTalk(ctx context.Context, ch *models.NotifyChannel, t
 	if body != "" {
 		content = title + "\n" + body
 	}
-	payload, _ := json.Marshal(map[string]any{
+	payload := map[string]any{
 		"msgtype": "text",
 		"text":    map[string]string{"content": content},
-	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	}
+	return n.postJSON(ctx, url, http.MethodPost, payload, "dingtalk", nil)
+}
+
+// sendWeCom posts a markdown message to a WeChat Work (企业微信) group robot:
+// the webhook config is a full URL (https://qyapi.weixin.qq.com/cgi-bin/
+// webhook/send?key=...) or a bare key.
+func (n *Notifier) sendWeCom(ctx context.Context, ch *models.NotifyChannel, title, body string) error {
+	url := weComURL(strVal(ch.Config["webhook"]), strVal(ch.Config["url"]), strVal(ch.Config["key"]))
+	if url == "" {
+		return fmt.Errorf("wecom channel missing webhook/key")
+	}
+	content := title
+	if body != "" {
+		content = title + "\n" + body
+	}
+	payload := map[string]any{
+		"msgtype":  "markdown",
+		"markdown": map[string]string{"content": content},
+	}
+	return n.postJSON(ctx, url, http.MethodPost, payload, "wecom", nil)
+}
+
+// sendLark posts a message to a Feishu/Lark custom bot:
+// the webhook config is a full URL (https://open.feishu.cn/open-apis/bot/v2/hook/...).
+func (n *Notifier) sendLark(ctx context.Context, ch *models.NotifyChannel, title, body string) error {
+	url := strVal(ch.Config["webhook"])
+	if url == "" {
+		url = strVal(ch.Config["url"])
+	}
+	if url == "" {
+		return fmt.Errorf("lark channel missing webhook")
+	}
+	content := title
+	if body != "" {
+		content = title + "\n" + body
+	}
+	payload := map[string]any{
+		"msg_type": "text",
+		"content":  map[string]string{"text": content},
+	}
+	return n.postJSON(ctx, url, http.MethodPost, payload, "lark", nil)
+}
+
+func weComURL(webhook, url, key string) string {
+	switch {
+	case webhook != "":
+		return webhook
+	case url != "":
+		return url
+	case key != "":
+		return "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=" + key
+	}
+	return ""
+}
+
+// postJSON sends a JSON body with bounded retries and records a metric per
+// attempt. Network errors and 5xx responses are retried with backoff; 4xx
+// (misconfiguration) fails fast.
+func (n *Notifier) postJSON(ctx context.Context, url, method string, payload any, channel string, header http.Header) error {
+	raw, err := json.Marshal(payload)
 	if err != nil {
+		metrics.ObserveNotify(channel, "error")
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := n.client.Do(req)
-	if err != nil {
-		return err
+	backoff := []time.Duration{0, 300 * time.Millisecond, 900 * time.Millisecond}
+	var lastErr error
+	for i, wait := range backoff {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				metrics.ObserveNotify(channel, "error")
+				return ctx.Err()
+			case <-time.After(wait):
+			}
+		}
+		req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(raw))
+		if err != nil {
+			metrics.ObserveNotify(channel, "error")
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if header != nil {
+			for k := range header {
+				req.Header.Set(k, header.Get(k))
+			}
+		}
+		resp, err := n.client.Do(req)
+		if err != nil {
+			lastErr = err
+			metrics.ObserveNotify(channel, "error")
+			continue // transport error: retry
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode >= 500 {
+			lastErr = fmt.Errorf("%s status %d", channel, resp.StatusCode)
+			metrics.ObserveNotify(channel, "error")
+			continue // 5xx: retry
+		}
+		if resp.StatusCode >= 300 {
+			metrics.ObserveNotify(channel, "error")
+			return fmt.Errorf("%s status %d", channel, resp.StatusCode) // 4xx: fail fast
+		}
+		metrics.ObserveNotify(channel, "ok")
+		return nil
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("dingtalk status %d", resp.StatusCode)
-	}
-	return nil
+	metrics.ObserveNotify(channel, "error")
+	return lastErr
 }
 
 func (n *Notifier) sendEmail(ch *models.NotifyChannel, title, body string) error {

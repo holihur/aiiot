@@ -27,6 +27,7 @@ func NewRouter(h *Handlers) *gin.Engine {
 	r.GET("/ota/firmware/:id", h.DownloadFirmware)
 
 	api := r.Group("/api/v1")
+	api.GET("/openapi.yaml", h.OpenAPISpec)
 	api.POST("/auth/register", middleware.RateLimit(registerRL, middleware.ClientKey), h.Register)
 	api.POST("/auth/login", middleware.RateLimit(loginRL, middleware.ClientKey), h.Login)
 	api.POST("/ingest/:productKey/:deviceKey", h.HTTPIngest)
@@ -102,6 +103,13 @@ func NewRouter(h *Handlers) *gin.Engine {
 		auth.GET("/devices/:id", h.GetDevice)
 		auth.PUT("/devices/:id", h.UpdateDevice)
 		auth.DELETE("/devices/:id", h.DeleteDevice)
+		auth.GET("/devices/:id/certificate", h.DeviceCertificateStatus)
+		auth.POST("/devices/:id/certificate", h.DeviceCertificate)
+		auth.DELETE("/devices/:id/certificate", h.RevokeDeviceCertificate)
+		auth.GET("/products/:id/devices/export", h.ExportDevices)
+		auth.POST("/products/:id/devices/import", h.ImportDevices)
+		auth.POST("/telemetry/compare", h.CompareTelemetry)
+		auth.GET("/devices/:id/telemetry/export", h.ExportTelemetry)
 		auth.PUT("/devices/:id/status", h.SetDeviceStatus)
 		auth.POST("/devices/:id/secret", h.RotateDeviceSecret)
 		auth.GET("/devices/:id/latest", h.DeviceLatest)
@@ -133,7 +141,11 @@ func NewRouter(h *Handlers) *gin.Engine {
 	// Administration area: isolated audience (admin token only).
 	admin := api.Group("/admin")
 	admin.POST("/auth/login", h.AdminLogin)
+	admin.GET("/auth/totp/status", h.AdminTOTPStatus)
 	admin.Use(middleware.AdminAuth(h.Tokens))
+	admin.POST("/auth/totp/setup", h.AdminTOTPSetup)
+	admin.POST("/auth/totp/enable", h.AdminTOTPEnable)
+	admin.POST("/auth/totp/disable", h.AdminTOTPDisable)
 	admin.Use(middleware.Audit(h.DB))
 	admin.GET("/auth/me", h.AdminMe)
 	admin.POST("/auth/password", h.AdminChangePassword)
@@ -152,6 +164,7 @@ func NewRouter(h *Handlers) *gin.Engine {
 		internal.POST("/heartbeat", h.GatewayHeartbeat)
 		internal.POST("/auth", h.GatewayAuthenticate)
 		internal.POST("/uplink", h.GatewayUplink)
+		internal.GET("/psk", h.GatewayPSK)
 	}
 
 	return r

@@ -4,6 +4,8 @@ package models
 const (
 	ChannelWebhook  = "webhook"
 	ChannelDingTalk = "dingtalk"
+	ChannelWeCom    = "wecom"
+	ChannelLark     = "lark"
 	ChannelEmail    = "email"
 )
 

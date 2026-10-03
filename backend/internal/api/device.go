@@ -296,7 +296,16 @@ func (h *Handlers) DeviceTelemetry(c *gin.Context) {
 	}
 	from := parseTime(c.Query("from"), time.Now().Add(-24*time.Hour))
 	to := parseTime(c.Query("to"), time.Now().Add(time.Minute))
-	identifier := c.Query("identifier")
+	rawIdent := c.Query("identifier")
+	var identifiers []string
+	for _, part := range strings.Split(rawIdent, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			identifiers = append(identifiers, part)
+		}
+	}
+	if len(identifiers) == 1 {
+		rawIdent = identifiers[0]
+	}
 	interval := time.Duration(0)
 	if raw := c.Query("interval"); raw != "" {
 		if d, err := time.ParseDuration(raw); err == nil {
@@ -309,12 +318,12 @@ func (h *Handlers) DeviceTelemetry(c *gin.Context) {
 		source := "raw"
 		if interval >= time.Hour {
 			points, err = h.Telemetry.QueryAggregateRollup(c, service.RangeQuery{
-				DeviceID: device.ID, Identifier: identifier, From: from, To: to,
+				DeviceID: device.ID, Identifier: rawIdent, Identifiers: identifiers, From: from, To: to,
 			}, interval)
 			source = "rollup"
 		} else {
 			points, err = h.Telemetry.QueryAggregate(c, service.RangeQuery{
-				DeviceID: device.ID, Identifier: identifier, From: from, To: to,
+				DeviceID: device.ID, Identifier: rawIdent, Identifiers: identifiers, From: from, To: to,
 			}, interval)
 		}
 		if err != nil {
@@ -325,11 +334,12 @@ func (h *Handlers) DeviceTelemetry(c *gin.Context) {
 		return
 	}
 	rows, err := h.Telemetry.QueryRange(c, service.RangeQuery{
-		DeviceID:   device.ID,
-		Identifier: identifier,
-		From:       from,
-		To:         to,
-		Limit:      int(queryUint(c, "limit")),
+		DeviceID:    device.ID,
+		Identifier:  rawIdent,
+		Identifiers: identifiers,
+		From:        from,
+		To:          to,
+		Limit:       int(queryUint(c, "limit")),
 	})
 	if err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())

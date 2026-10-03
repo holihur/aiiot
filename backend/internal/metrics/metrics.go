@@ -76,6 +76,11 @@ var (
 		Help: "NATS uplink messages redelivered (delivery count > 1).",
 	}, []string{"subject"})
 
+	notifyAttemptsTotal = promauto.With(registry).NewCounterVec(prometheus.CounterOpts{
+		Name: "aiiot_notify_attempts_total",
+		Help: "Notification delivery attempts, by channel type and result.",
+	}, []string{"channel", "result"})
+
 	ruleEvaluationsTotal = promauto.With(registry).NewCounterVec(prometheus.CounterOpts{
 		Name: "aiiot_rule_evaluations_total",
 		Help: "CEL rule evaluations by trigger type.",
@@ -127,6 +132,17 @@ func HTTP() gin.HandlerFunc {
 
 // ObserveIngestDedupDrop records a duplicate uplink dropped by idempotency.
 func ObserveIngestDedupDrop() { ingestDedupDropped.Inc() }
+
+// ObserveNotify records one notification delivery attempt (channel w/ outcome).
+func ObserveNotify(channel, result string) {
+	if channel == "" {
+		channel = "unknown"
+	}
+	if result == "" {
+		result = "ok"
+	}
+	notifyAttemptsTotal.WithLabelValues(channel, result).Inc()
+}
 
 // ObserveIngest records one processed uplink message.
 func ObserveIngest(protocol, kind string, err error, start time.Time) {

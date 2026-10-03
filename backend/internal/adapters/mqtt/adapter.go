@@ -6,9 +6,11 @@ package mqtt
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,7 +32,11 @@ type Options struct {
 	TLSAddr string
 	TLSCert string
 	TLSKey  string
-	Logger  *slog.Logger
+	// TLSCAFile, when set, enables mutual TLS: connecting devices must present
+	// a client certificate signed by this CA (the platform CA.crt). The
+	// certificate CN is then used for device authentication.
+	TLSCAFile string
+	Logger    *slog.Logger
 }
 
 // Adapter is the MQTT access adapter.
@@ -97,13 +103,26 @@ func (a *Adapter) Start(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("load tls cert: %w", err)
 		}
+		tlsCfg := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+		if a.opts.TLSCAFile != "" {
+			caPEM, err := os.ReadFile(a.opts.TLSCAFile)
+			if err != nil {
+				return fmt.Errorf("read client CA: %w", err)
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM(caPEM) {
+				return fmt.Errorf("invalid client CA file %s", a.opts.TLSCAFile)
+			}
+			tlsCfg.ClientCAs = pool
+			tlsCfg.ClientAuth = tls.RequireAndVerifyClientCert
+		}
 		if err := server.AddListener(listeners.NewTCP(listeners.Config{
-			ID:      a.opts.InstanceID + "-tls",
-			Address: a.opts.TLSAddr,
-			TLSConfig: &tls.Config{
-				Certificates: []tls.Certificate{cert},
-				MinVersion:   tls.VersionTLS12,
-			},
+			ID:        a.opts.InstanceID + "-tls",
+			Address:   a.opts.TLSAddr,
+			TLSConfig: tlsCfg,
 		})); err != nil {
 			return fmt.Errorf("add tls listener: %w", err)
 		}

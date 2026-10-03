@@ -15,24 +15,36 @@ if [ -f "$BACKEND/.env" ]; then
   set +a
 fi
 
+# start launches a process with LOG_FILE pointed at the .run directory so the
+# application writes through lumberjack: size/age rotation, pruning, gzip.
 start() { # name command...
   local name="$1"; shift
   if [ -f "$RUN_DIR/$name.pid" ] && kill -0 "$(cat "$RUN_DIR/$name.pid")" 2>/dev/null; then
     echo "$name already running (pid $(cat "$RUN_DIR/$name.pid"))"
     return
   fi
-  "$@" > "$RUN_DIR/$name.log" 2>&1 &
+  env LOG_FILE="$RUN_DIR/$name.log" \
+    "$@" > "$RUN_DIR/$name.console.log" 2>&1 &
   echo $! > "$RUN_DIR/$name.pid"
-  echo "started $name (pid $!) -> $RUN_DIR/$name.log"
+  echo "started $name (pid $!) -> $RUN_DIR/$name.log (rotating)"
 }
 
 stop() { # name
   local name="$1"
+  local pid=""
   if [ -f "$RUN_DIR/$name.pid" ]; then
-    kill "$(cat "$RUN_DIR/$name.pid")" 2>/dev/null || true
+    pid="$(cat "$RUN_DIR/$name.pid")"
     rm -f "$RUN_DIR/$name.pid"
-    echo "stopped $name"
   fi
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+  else
+    # fallback: kill leftover processes by their executable name only (a
+    # pkill -f pattern would match this script's own command line too)
+    safe_pids=$(ps -eo pid=,comm= | awk -v n="$name" '$2 == n {print $1}')
+    [ -n "$safe_pids" ] && kill $safe_pids 2>/dev/null || true
+  fi
+  echo "stopped $name"
 }
 
 case "${1:-start}" in
@@ -50,12 +62,22 @@ case "${1:-start}" in
     fi
     start core          ./bin/core
     sleep 1
-    start mqtt-gateway   env GATEWAY_CORE_URL=http://127.0.0.1:8080 ./bin/mqtt-gateway
+    MQTT_PORT=1883
+    if ss -tln 2>/dev/null | grep -q ':1883 '; then
+      echo "note: :1883 taken (system mosquitto?) -> mqtt-gateway on :11883"
+      MQTT_PORT=11883
+    fi
+    start mqtt-gateway   env GATEWAY_CORE_URL=http://127.0.0.1:8080 MQTT_TCP_ADDR="0.0.0.0:$MQTT_PORT" ./bin/mqtt-gateway
     start coap-gateway   env GATEWAY_CORE_URL=http://127.0.0.1:8080 ./bin/coap-gateway
     start custom-gateway env GATEWAY_CORE_URL=http://127.0.0.1:8080 ./bin/custom-gateway
+    if [ -n "${MODBUS_CONFIG_FILE:-}" ]; then
+      start modbus-gateway env GATEWAY_CORE_URL=http://127.0.0.1:8080 MODBUS_CONFIG_FILE="$MODBUS_CONFIG_FILE" ./bin/modbus-gateway
+    else
+      echo "modbus-gateway skipped (set MODBUS_CONFIG_FILE to enable)"
+    fi
     ;;
   stop)
-    stop mqtt-gateway; stop coap-gateway; stop custom-gateway; stop core; stop nats
+    stop modbus-gateway; stop mqtt-gateway; stop coap-gateway; stop custom-gateway; stop core; stop nats
     ;;
   restart)
     "$0" stop; sleep 1; "$0" start

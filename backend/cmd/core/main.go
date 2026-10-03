@@ -9,10 +9,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -20,20 +22,39 @@ import (
 	"github.com/aiiot/server/internal/api"
 	"github.com/aiiot/server/internal/auth"
 	"github.com/aiiot/server/internal/bus"
+	"github.com/aiiot/server/internal/certs"
 	"github.com/aiiot/server/internal/config"
 	"github.com/aiiot/server/internal/database"
 	"github.com/aiiot/server/internal/gateway"
+	"github.com/aiiot/server/internal/logset"
 	"github.com/aiiot/server/internal/metrics"
 	"github.com/aiiot/server/internal/models"
 	"github.com/aiiot/server/internal/service"
+	"github.com/aiiot/server/internal/totp"
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
 )
 
 func main() {
 	cfg := config.Load()
-	log := newLogger(cfg.LogLevel)
+	log := newLogger(cfg.LogLevel, logset.New(logset.File{
+		Path:       cfg.LogFile,
+		MaxSizeMB:  cfg.LogMaxSizeMB,
+		MaxBackups: cfg.LogMaxBackups,
+		MaxAgeDays: cfg.LogMaxAgeDays,
+		Compress:   cfg.LogCompress,
+	}))
 	slog.SetDefault(log)
+	certMgr, err := certs.LoadOrCreate(os.Getenv("CERTS_DIR"))
+	if err != nil {
+		log.Error("certificate manager init failed", "error", err)
+		os.Exit(1)
+	}
+	totpCipher, err := totp.NewCipher(cfg.JWTSecret)
+	if err != nil {
+		log.Error("totp cipher init failed", "error", err)
+		os.Exit(1)
+	}
 	if err := cfg.Validate(); err != nil {
 		log.Error("unsafe configuration", "error", err)
 		os.Exit(1)
@@ -53,7 +74,7 @@ func main() {
 
 	tokens := auth.NewTokenService(cfg.JWTSecret, cfg.JWTTTL)
 	resolver := service.NewResolver(db)
-	telemetry := service.NewTelemetryService(db, cfg.Telemetry, log)
+	telemetry := service.NewTelemetryService(service.NewPG(db), cfg.Telemetry, log)
 	registry := gateway.NewRegistry(db, cfg.Gateway.HeartbeatTimeout)
 	downlink := service.NewDownlinkService(db, resolver, registry, log)
 	shadow := service.NewShadowService(db, downlink, log)
@@ -131,6 +152,14 @@ func main() {
 		ingestErr := ingest.Handle(context.Background(), msg)
 		metrics.ObserveNATSConsume(natsSubject, ingestErr, delivered, start)
 		if ingestErr != nil {
+			// Deterministic failures (bad payload, unknown kind) are
+			// acknowledged and dropped; redelivering them would loop forever
+			// (JetStream Nak storm). Logs are rate-limited per device via
+			// ratelimitIngestLog.
+			if errors.Is(ingestErr, service.ErrInvalidUplink) {
+				rateLimitedIngestLog(log, msg.Device.DeviceKey, ingestErr)
+				return nil
+			}
 			log.Warn("ingest failed", "error", ingestErr, "device", msg.Device.DeviceKey, "kind", msg.Kind)
 			return ingestErr // transient failure -> redeliver
 		}
@@ -166,6 +195,8 @@ func main() {
 		Downlink:         downlink,
 		Registry:         registry,
 		GatewayToken:     cfg.Gateway.Token,
+		Certs:            certMgr,
+		TOTP:             totpCipher,
 		PublicHost:       cfg.PublicHost,
 		RetentionDefault: cfg.Telemetry.RetentionDays,
 		Log:              log,
@@ -209,6 +240,21 @@ func main() {
 // backgroundJobs runs maintenance loop the same schedule on every replica; a
 // PostgreSQL advisory lock (database.Exclusive) ensures each job actually runs
 // on exactly one replica at a time.
+// rateLimitedIngestLog throttles per-device invalid-uplink warnings so a
+// poisoned device can never flood the log (one line per device / 30s).
+func rateLimitedIngestLog(log *slog.Logger, deviceKey string, err error) {
+	key := deviceKey
+	now := time.Now()
+	last, _ := ingestLogStamp.LoadOrStore(key, now)
+	if lt, ok := last.(time.Time); ok && now.Sub(lt) < 30*time.Second {
+		return
+	}
+	ingestLogStamp.Store(key, now)
+	log.Warn("ingest failed (throttled)", "error", err, "device", deviceKey)
+}
+
+var ingestLogStamp sync.Map
+
 func backgroundJobs(ctx context.Context, db *gorm.DB, cfg *config.Config, ingest *service.IngestService, registry *gateway.Registry, alerter *service.Alerter, log *slog.Logger) {
 	offlineTicker := time.NewTicker(time.Minute)
 	partitionTicker := time.NewTicker(6 * time.Hour)
@@ -311,10 +357,10 @@ func updateGauges(ctx context.Context, db *gorm.DB, registry *gateway.Registry) 
 	metrics.SetGatewaysHealthy(float64(healthy))
 }
 
-func newLogger(level string) *slog.Logger {
+func newLogger(level string, out io.Writer) *slog.Logger {
 	var lvl slog.Level
 	if err := lvl.UnmarshalText([]byte(level)); err != nil {
 		lvl = slog.LevelInfo
 	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
+	return slog.New(slog.NewJSONHandler(out, &slog.HandlerOptions{Level: lvl}))
 }

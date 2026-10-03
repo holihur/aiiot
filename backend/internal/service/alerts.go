@@ -23,6 +23,9 @@ type Alerter struct {
 
 // NewAlerter creates the alert service.
 func NewAlerter(db *gorm.DB, log *slog.Logger) *Alerter {
+	if log == nil {
+		log = slog.Default()
+	}
 	return &Alerter{db: db, log: log}
 }
 

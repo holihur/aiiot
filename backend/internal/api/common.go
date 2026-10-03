@@ -7,10 +7,12 @@ import (
 
 	"github.com/aiiot/server/internal/auth"
 	"github.com/aiiot/server/internal/bus"
+	"github.com/aiiot/server/internal/certs"
 	"github.com/aiiot/server/internal/gateway"
 	"github.com/aiiot/server/internal/middleware"
 	"github.com/aiiot/server/internal/models"
 	"github.com/aiiot/server/internal/service"
+	"github.com/aiiot/server/internal/totp"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -31,6 +33,8 @@ type Handlers struct {
 	Downlink     *service.DownlinkService
 	Registry     *gateway.Registry
 	GatewayToken string
+	Certs        *certs.Manager // device X.509; nil disables cert APIs
+	TOTP         *totp.Cipher   // admin 2FA; nil disables the endpoints
 	// PublicHost is advertised to devices in connection instructions.
 	PublicHost string
 	// RetentionDefault is the configured telemetry retention when no runtime

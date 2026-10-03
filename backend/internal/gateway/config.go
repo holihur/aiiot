@@ -1,11 +1,13 @@
 package gateway
 
 import (
+	"io"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/aiiot/server/internal/bus"
+	"github.com/aiiot/server/internal/logset"
 )
 
 // LoadHarnessConfig builds a HarnessConfig from environment variables shared
@@ -75,4 +77,18 @@ func GetDur(key string, def time.Duration) time.Duration {
 		}
 	}
 	return def
+}
+
+// LogWriter returns the shared gateway log destination: stdout by default,
+// or a lumberjack rolling file when LOG_FILE is set (rotation, pruning and
+// gzip controlled by LOG_MAX_SIZE_MB / LOG_MAX_BACKUPS / LOG_MAX_AGE_DAYS /
+// LOG_COMPRESS).
+func LogWriter() io.Writer {
+	return logset.New(logset.File{
+		Path:       GetStr("LOG_FILE", ""),
+		MaxSizeMB:  GetInt("LOG_MAX_SIZE_MB", 100),
+		MaxBackups: GetInt("LOG_MAX_BACKUPS", 5),
+		MaxAgeDays: GetInt("LOG_MAX_AGE_DAYS", 14),
+		Compress:   GetBool("LOG_COMPRESS", true),
+	})
 }

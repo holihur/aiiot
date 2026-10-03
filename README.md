@@ -141,7 +141,7 @@ cd backend
 go build -o bin/core          ./cmd/core
 go build -o bin/mqtt-gateway  ./cmd/mqtt-gateway
 go build -o bin/coap-gateway  ./cmd/coap-gateway
-go build -o bin/custom-gateway ./cmd/custom-gateway
+go build -o bin/modbus-gateway ./cmd/modbus-gateway
 
 # 5. Run the core (from backend/ so .env and web/dist resolve)
 ./bin/core
@@ -150,7 +150,16 @@ go build -o bin/custom-gateway ./cmd/custom-gateway
 GATEWAY_TOKEN=$(grep GATEWAY_TOKEN .env | cut -d= -f2) ./bin/mqtt-gateway
 GATEWAY_TOKEN=... ./bin/coap-gateway
 GATEWAY_TOKEN=... ./bin/custom-gateway
+GATEWAY_TOKEN=... MODBUS_CONFIG_FILE=./deploy/modbus.example.json ./bin/modbus-gateway
 ```
+
+> **Modbus**: the gateway is *master-driven* — it dials the configured PLCs,
+> polls the mapped registers and reports them as property uplinks. The device
+> table lives in `MODBUS_CONFIG_FILE` (schema: `deploy/modbus.example.json`; a
+> `backend/scripts/modbus_slave_sim.py` simulator is included for demos). Each
+> mapped register must exist in the product thing model, and the product's
+> protocol must be `modbus` so commands route to this gateway. `scripts/dev.sh`
+> starts it automatically when `MODBUS_CONFIG_FILE` is set.
 
 Prefer shortcuts? `make build` builds the frontend + all Go binaries, and
 `make run` / `make run-mqtt` / `make run-coap` / `make run-custom` start the
@@ -159,6 +168,20 @@ NATS + core + the three gateways).
 
 Open <http://localhost:8080>. The **first registered account becomes a system
 admin**.
+
+## API & SDKs
+
+`GET /api/v1/openapi.yaml` serves the OpenAPI 3.0 contract (import into
+Postman/Insomnia or generate clients). Official zero-dependency SDKs live in
+`docs/api.md` / `sdk/`:
+- **Python** `sdk/python/aiiot.py` — login, projects/workspaces/products,
+  devices (CRUD + CSV import/export + X.509 certificates), telemetry
+  (latest/downsampled/compare/CSV), rules, alerts, channels.
+- **TypeScript** `sdk/ts/aiiot.ts` — same surface, browser & Node.
+
+See `docs/api.md` for examples and protocol notes. See `docs/scaling.md`
+for the scaling envelope, TimescaleDB migration steps and durable-MQTT
+options.
 
 ## Default ports
 
@@ -212,6 +235,52 @@ See `backend/.env.example`. Important variables:
 | `NATS_STREAM` / `NATS_UPLINK_SUBJECT` | JetStream stream name / subject |
 | `NATS_DURABLE` / `NATS_QUEUE` | durable consumer + queue group (core scaling) |
 | `TELEMETRY_RETENTION_DAYS` | drop partitions older than this |
+| `LOG_FILE` | rotating log file (empty = stdout) |
+| `LOG_MAX_SIZE_MB` | rotate at this size (default 100) |
+| `LOG_MAX_BACKUPS` | keep at most this many rotated files (default 5) |
+| `LOG_MAX_AGE_DAYS` | delete rotated files older than this (default 14) |
+| `LOG_COMPRESS` | gzip rotated files (default true) |
+| `CERTS_DIR` | directory of the platform CA for device X.509 (default `./certs`) |
+| `MQTT_TLS_CA_FILE` | file with the platform CA; enables mutual TLS (client certs) |
+
+## Device X.509 certificates
+
+Devices can authenticate over MQTT-TLS with a client certificate instead of a
+password (mutual TLS):
+
+```bash
+# 1. enable the mTLS listener on the mqtt-gateway
+MQTT_TLS_ADDR=0.0.0.0:8883 MQTT_TLS_CERT=server.crt MQTT_TLS_KEY=server.key \
+MQTT_TLS_CA_FILE=$CERTS_DIR/ca.crt ./bin/mqtt-gateway
+
+# 2. issue a certificate for a device (returns cert + private key ONCE)
+curl -X POST :8080/api/v1/devices/16/certificate -H "Authorization: Bearer $TOKEN"
+#   -> {certPem, keyPem, caPem, serial, expiresAt}
+
+# 3. connect with username=<productKey>/<deviceKey>, no password,
+#    presenting the client certificate; the core checks the certificate CN
+#    against the issued/revoked set (device_certs).
+# 4. revoke: curl -X DELETE /api/v1/devices/16/certificate
+```
+
+The platform holds a self-signed CA (created on first start in `CERTS_DIR`);
+the private key stays on the core (`0600`). Only one active certificate per
+device; re-issuing revokes the previous one automatically.
+
+## CoAP DTLS (PSK)
+
+The CoAP gateway can run a DTLS listener with pre-shared keys
+(`COAP_DTLS_PSK_ADDR`): the device identity is its deviceKey and the PSK is
+its device secret (fetched from the core through the gateway token, cached
+5 minutes). Application-layer authentication still applies (`?secret=` query
+via a CoAP Uri-Query option), so the wire is encrypted and identity is
+verified end to end.
+
+Rotating logs use [lumberjack](https://github.com/natefinch/lumberjack):
+files roll by size, old files are pruned by count and age, and rotated
+files are gzip-compressed. `scripts/dev.sh` points `LOG_FILE` at
+`backend/.run/<name>.log`, so every process keeps a bounded footprint
+instead of one ever-growing file.
 
 ## Device shadow
 
@@ -347,6 +416,15 @@ a successful delivery within the window; suppressed alerts are still logged
 - `aggregateSeconds` buffers alerts and delivers a single summary (with event
   count) per window.
 - A channel can set a default window via `config.silenceSeconds`.
+
+## Time-series storage abstraction
+
+All time-series reads/writes go through `internal/tsdb`'s `Store` interface
+(`Write`, `QueryRange`, `QueryAggregate`, `Latest`; optional `RollupStore` for
+pre-aggregated hourly reads). The default backend is partitioned PostgreSQL
+(`internal/tsdb/pg`), wired in the core as `service.NewPG(db)`. Swapping in
+TimescaleDB, InfluxDB or another TSDB means implementing the interface once —
+ingest, rules, telemetry and dashboard code don't change.
 
 ## Storage & retention
 

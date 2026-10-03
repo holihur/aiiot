@@ -18,7 +18,7 @@ import (
 const version = "1.0.0"
 
 func main() {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	log := slog.New(slog.NewJSONHandler(gateway.LogWriter(), &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(log)
 
 	hc := gateway.LoadHarnessConfig(access.ProtocolCustomName, "0.0.0.0:9103", version)

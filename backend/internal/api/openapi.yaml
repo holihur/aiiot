@@ -1,0 +1,582 @@
+openapi: 3.0.3
+info:
+  title: aiiot API
+  version: 1.0.0
+  description: |
+    aiiot device management platform API.
+    - Authentication: `POST /api/v1/auth/login` returns `{token, expiresAt}`; pass
+      it as `Authorization: Bearer <token>` on all other endpoints.
+    - M2M note: this document is also used to generate the official SDKs
+      (`sdk/python`, `sdk/ts`).
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    Project:
+      type: object
+      properties:
+        id: { type: integer }
+        key: { type: string }
+        name: { type: string }
+        description: { type: string }
+    Workspace:
+      type: object
+      properties:
+        id: { type: integer }
+        projectId: { type: integer }
+        key: { type: string }
+        name: { type: string }
+    Product:
+      type: object
+      properties:
+        id: { type: integer }
+        key: { type: string }
+        name: { type: string }
+        protocol: { type: string, enum: [mqtt, coap, custom, modbus] }
+        status: { type: string, enum: [draft, published, archived] }
+    ThingModel:
+      type: object
+      properties:
+        version: { type: string }
+        status: { type: string }
+        elements:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string, enum: [property, service, event] }
+              identifier: { type: string }
+              name: { type: string }
+              dataType: { type: string }
+              accessMode: { type: string }
+              unit: { type: string }
+              specs: { type: object }
+    Device:
+      type: object
+      properties:
+        id: { type: integer }
+        projectId: { type: integer }
+        workspaceId: { type: integer }
+        productId: { type: integer }
+        key: { type: string }
+        name: { type: string }
+        status: { type: string }
+        online: { type: boolean }
+        tags: { type: object }
+    LatestValue:
+      type: object
+      properties:
+        identifier: { type: string }
+        dataType: { type: string }
+        numValue: { type: number, nullable: true }
+        boolValue: { type: boolean, nullable: true }
+        strValue: { type: string, nullable: true }
+        updatedAt: { type: string, format: date-time }
+    AggregatePoint:
+      type: object
+      properties:
+        bucket: { type: string, format: date-time }
+        identifier: { type: string }
+        avg: { type: number, nullable: true }
+        min: { type: number, nullable: true }
+        max: { type: number, nullable: true }
+        count: { type: integer }
+    CompareSeries:
+      type: object
+      properties:
+        deviceId: { type: integer }
+        deviceKey: { type: string }
+        identifier: { type: string }
+        points:
+          type: array
+          items:
+            type: object
+            properties:
+              t: { type: string, format: date-time }
+              v: { type: number, nullable: true }
+    Rule:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        enabled: { type: boolean }
+        triggerType: { type: string }
+        condition: { type: string }
+        priority: { type: integer }
+    Alert:
+      type: object
+      properties:
+        id: { type: integer }
+        ruleId: { type: integer }
+        deviceId: { type: integer }
+        level: { type: string, enum: [info, warning, critical] }
+        status: { type: string, enum: [firing, acknowledged, resolved] }
+        fireCount: { type: integer }
+    NotifyChannel:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        type: { type: string, enum: [webhook, dingtalk, wecom, lark, email] }
+        enabled: { type: boolean }
+    ImportResult:
+      type: object
+      properties:
+        created: { type: integer }
+        skipped: { type: integer }
+        failed: { type: integer }
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              line: { type: integer }
+              key: { type: string }
+              status: { type: string, enum: [created, skipped, failed] }
+              error: { type: string }
+
+paths:
+  /auth/login:
+    post:
+      summary: Sign in as a platform user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: Bearer token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  expiresAt: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /projects:
+    get:
+      summary: List projects the caller is a member of
+      responses:
+        "200":
+          description: Projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Project" }
+    post:
+      summary: Create a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                key: { type: string }
+                name: { type: string }
+                description: { type: string }
+      responses:
+        "201": { $ref: "#/components/responses/Created" }
+
+  /projects/{id}/workspaces:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: List workspaces of a project
+      responses:
+        "200":
+          description: Workspaces
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Workspace" }
+    post:
+      summary: Create a workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                key: { type: string }
+                name: { type: string }
+      responses:
+        "201": { $ref: "#/components/responses/Created" }
+
+  /products:
+    get:
+      summary: List products (global library)
+      responses:
+        "200":
+          description: Products
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Product" }
+    post:
+      summary: Create a product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, protocol]
+              properties:
+                key: { type: string }
+                name: { type: string }
+                protocol: { type: string, enum: [mqtt, coap, custom, modbus] }
+                description: { type: string }
+      responses:
+        "201": { $ref: "#/components/responses/Created" }
+
+  /products/{id}/thing-model:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: Get the current thing model
+      responses:
+        "200":
+          description: Thing model
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ThingModel" }
+    put:
+      summary: Save the thing model (atomically replaces elements)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                version: { type: string }
+                description: { type: string }
+                elements:
+                  type: array
+                  items: { type: object }
+      responses:
+        "200":
+          description: Saved thing model
+  /products/{id}/thing-model/publish:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post:
+      summary: Publish the thing model (snapshot + activate)
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  snapshotId: { type: integer }
+                  version: { type: string }
+
+  /products/{id}/devices:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post:
+      summary: Create a device under the product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, workspaceId]
+              properties:
+                key: { type: string }
+                name: { type: string }
+                workspaceId: { type: integer }
+                secret: { type: string }
+                tags: { type: object }
+      responses:
+        "201":
+          description: Created with the device secret (shown once)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device: { $ref: "#/components/schemas/Device" }
+                  secret: { type: string }
+  /products/{id}/devices/export:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: Download devices as CSV (key,name,workspaceKey,status,secret)
+      responses:
+        "200":
+          description: CSV attachment
+          content:
+            text/csv: { schema: { type: string } }
+  /products/{id}/devices/import:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post:
+      summary: Bulk-create devices from a CSV upload (field name: file)
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "200":
+          description: Import summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportResult" }
+
+  /devices/{id}:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: Get a device
+      responses:
+        "200":
+          description: Device
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Device" }
+    put:
+      summary: Update a device
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                status: { type: string }
+                tags: { type: object }
+      responses:
+        "200": { description: Updated }
+    delete:
+      summary: Delete a device
+      responses:
+        "200": { description: Deleted }
+
+  /devices/{id}/latest:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: Latest cached value per identifier
+      responses:
+        "200":
+          description: Latest values
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/LatestValue" }
+
+  /devices/{id}/telemetry:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: Query time series; add interval for downsampling, raw otherwise
+      parameters:
+        - { name: identifier, in: query, schema: { type: string }, description: "one or comma-separated identifiers" }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: interval, in: query, schema: { type: string }, description: "e.g. 1m, 5m, 1h (>=1h served from hourly rollup)" }
+        - { name: limit, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: Points
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mode: { type: string }
+                  source: { type: string }
+                  points:
+                    type: array
+                    items: { $ref: "#/components/schemas/AggregatePoint" }
+
+  /devices/{id}/telemetry/export:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: Download series as CSV (one column per identifier)
+      parameters:
+        - { name: identifiers, in: query, required: true, schema: { type: string } }
+        - { name: interval, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: CSV attachment
+          content:
+            text/csv: { schema: { type: string } }
+
+  /telemetry/compare:
+    post:
+      summary: Downsampled series for multiple devices x identifiers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceIds, identifiers]
+              properties:
+                deviceIds:
+                  type: array
+                  items: { type: integer }
+                identifiers:
+                  type: array
+                  items: { type: string }
+                interval: { type: string }
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Per-series points
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  interval: { type: string }
+                  series:
+                    type: array
+                    items: { $ref: "#/components/schemas/CompareSeries" }
+
+  /devices/{id}/certificate:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: Certificate status (active / serial / expiresAt)
+      responses:
+        "200":
+          description: Status
+    post:
+      summary: Issue a client certificate (private key returned once)
+      responses:
+        "200":
+          description: Certificate material
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  certPem: { type: string }
+                  keyPem: { type: string }
+                  caPem: { type: string }
+                  serial: { type: string }
+                  expiresAt: { type: string, format: date-time }
+    delete:
+      summary: Revoke the active certificate
+      responses:
+        "200": { description: Revoked }
+
+  /projects/{id}/rules:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: List rules
+      responses:
+        "200":
+          description: Rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Rule" }
+
+  /projects/{id}/alerts:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: List alerts (query: status/level, limit)
+      responses:
+        "200":
+          description: Alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Alert" }
+
+  /projects/{id}/channels:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    get:
+      summary: List notification channels
+      responses:
+        "200":
+          description: Channels
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/NotifyChannel" }
+    post:
+      summary: Create a notification channel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name: { type: string }
+                type: { type: string, enum: [webhook, dingtalk, wecom, lark, email] }
+                enabled: { type: boolean }
+                config: { type: object }
+      responses:
+        "201": { $ref: "#/components/responses/Created" }
+  /channels/{id}/test:
+    parameters: [{ $ref: "#/components/parameters/Id" }]
+    post:
+      summary: Send a test notification through the channel
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                body: { type: string }
+      responses:
+        "200": { description: Delivered }
+
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+  responses:
+    Created:
+      description: Created
+      content:
+        application/json:
+          schema: { type: object }
+    Unauthorized:
+      description: Invalid or missing credentials
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }

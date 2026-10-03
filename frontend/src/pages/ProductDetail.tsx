@@ -264,7 +264,12 @@ export default function ProductDetailPage() {
     enabled: versionOpen,
   });
   const publishModel = useMutation({
-    mutationFn: () => api.publishThingModel(productId),
+    mutationFn: async () => {
+      if (dirty) {
+        await api.putThingModel(productId, { version, elements });
+      }
+      return api.publishThingModel(productId);
+    },
     onSuccess: (r) => {
       toast.success(`Published v${r.version}`);
       void qc.invalidateQueries({ queryKey: ["thingModel", productId] });

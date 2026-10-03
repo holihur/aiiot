@@ -54,6 +54,8 @@ func SeedAdmin(db *gorm.DB, username, password string, log *slog.Logger) {
 type adminLoginRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	// TOTPCode is required once 2FA is enabled for the account.
+	TOTPCode string `json:"totpCode"`
 }
 
 // AdminLogin authenticates an administrator and returns an admin-audience token.
@@ -74,6 +76,15 @@ func (h *Handlers) AdminLogin(c *gin.Context) {
 	}
 	if !auth.CheckPassword(admin.PasswordHash, req.Password) {
 		fail(c, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+	if err := h.verifyAdminTOTP(&admin, req.TOTPCode); err != nil {
+		ce, isChallenge := err.(*totpChallengeError)
+		if !isChallenge {
+			fail(c, http.StatusInternalServerError, err.Error())
+			return
+		}
+		c.JSON(http.StatusUnauthorized, totpRequiredResponse(ce.kind))
 		return
 	}
 	token, exp, err := h.Tokens.IssueAdmin(admin.ID, admin.Username)

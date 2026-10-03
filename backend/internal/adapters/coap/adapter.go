@@ -25,7 +25,14 @@ import (
 type Options struct {
 	UDPAddr string
 	TCPAddr string
-	Logger  *slog.Logger
+	// DTLSPSKAddr enables a CoAP-DTLS listener with pre-shared keys: the
+	// device identity is its deviceKey and the PSK is its secret (fetched
+	// from the core via GATEWAY_CORE_URL + GATEWAY_TOKEN, cached 5min).
+	// DTLS encrypts the channel; application-layer auth still applies.
+	DTLSPSKAddr  string
+	CoreURL      string
+	GatewayToken string
+	Logger       *slog.Logger
 }
 
 // Adapter is the CoAP access adapter.
@@ -63,7 +70,7 @@ func (a *Adapter) ActiveDevices() int {
 func (a *Adapter) Start(ctx context.Context) error {
 	router := a.router()
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 	if a.opts.UDPAddr != "" {
 		go func() {
 			a.log.Info("coap udp listening", "addr", a.opts.UDPAddr)
@@ -76,7 +83,13 @@ func (a *Adapter) Start(ctx context.Context) error {
 			errCh <- coap.ListenAndServe("tcp", a.opts.TCPAddr, router)
 		}()
 	}
-	if a.opts.UDPAddr == "" && a.opts.TCPAddr == "" {
+	if a.opts.DTLSPSKAddr != "" {
+		go func() {
+			a.log.Info("coap dtls-psk listening", "addr", a.opts.DTLSPSKAddr)
+			errCh <- a.serveDTLS()
+		}()
+	}
+	if a.opts.UDPAddr == "" && a.opts.TCPAddr == "" && a.opts.DTLSPSKAddr == "" {
 		return fmt.Errorf("coap adapter requires at least one listen address")
 	}
 
@@ -92,6 +105,9 @@ func (a *Adapter) Stop(ctx context.Context) error { return nil }
 
 func (a *Adapter) router() *mux.Router {
 	r := mux.NewRouter()
+	r.DefaultHandleFunc(func(w mux.ResponseWriter, m *mux.Message) {
+		a.log.Warn("coap no route", "path", rPath(m))
+	})
 	base := "/{productKey}/{deviceKey}"
 
 	r.HandleFunc(base+"/properties", a.handle("property", ""))
@@ -114,6 +130,7 @@ func (a *Adapter) handle(kind, _ string) mux.HandlerFunc {
 		}
 		productKey := vars["productKey"]
 		deviceKey := vars["deviceKey"]
+		a.log.Info("coap request", "kind", kind, "path", rPath(r), "product", productKey, "device", deviceKey)
 
 		resp, err := a.authorize(r, productKey, deviceKey, w)
 		if err != nil {

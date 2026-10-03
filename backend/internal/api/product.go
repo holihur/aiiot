@@ -16,7 +16,7 @@ type productRequest struct {
 	Key         string `json:"key" binding:"omitempty,min=2,max=64"`
 	Name        string `json:"name" binding:"required,max=160"`
 	Category    string `json:"category"`
-	Protocol    string `json:"protocol" binding:"required,oneof=mqtt coap custom"`
+	Protocol    string `json:"protocol" binding:"required,oneof=mqtt coap custom modbus"`
 	DataFormat  string `json:"dataFormat"`
 	Description string `json:"description"`
 	Status      string `json:"status"`
@@ -409,19 +409,8 @@ func (h *Handlers) PublishThingModel(c *gin.Context) {
 	}
 	var els []models.ThingModelElement
 	h.DB.WithContext(c).Where("thing_model_id = ?", tm.ID).Find(&els)
-	counts := map[string]int{}
-	for _, e := range els {
-		counts[e.Type]++
-	}
-	need := []string{models.ElementProperty, models.ElementService, models.ElementEvent}
-	var missing []string
-	for _, t := range need {
-		if counts[t] == 0 {
-			missing = append(missing, t)
-		}
-	}
-	if len(missing) > 0 {
-		fail(c, http.StatusBadRequest, "thing model unusable: missing "+strings.Join(missing, ", ")+" — add at least one of each")
+	if len(els) == 0 {
+		fail(c, http.StatusBadRequest, "thing model unusable: add at least one element (property, service or event) before publishing")
 		return
 	}
 	payload, err := json.Marshal(els)

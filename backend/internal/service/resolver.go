@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/subtle"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/aiiot/server/internal/access"
+	"github.com/aiiot/server/internal/certs"
 	"github.com/aiiot/server/internal/models"
 	"gorm.io/gorm"
 )
@@ -135,6 +137,27 @@ func (r *Resolver) Authenticate(ctx context.Context, req *access.AuthRequest) (*
 		resp.Reason = "product mismatch"
 		return resp, nil
 	}
+	// Device X.509: when the gateway already validated a client certificate
+	// against the platform CA, the certificate CN must resolve to this device
+	// and the certificate must not be revoked/expired. Password is then not
+	// required.
+	if req.CertificateCN != "" {
+		id, ok := certs.DeviceIDFromCN(req.CertificateCN)
+		if !ok || id != device.ID {
+			resp.Reason = "certificate CN does not match device"
+			return resp, nil
+		}
+		var dc models.DeviceCert
+		if err := r.db.WithContext(ctx).
+			Where("device_id = ? AND revoked = ? AND not_after > ?", device.ID, false, time.Now().UTC()).
+			Order("id desc").First(&dc).Error; err != nil {
+			resp.Reason = "no valid certificate issued for device"
+			slog.Warn("cert auth rejected", "device", device.ID, "cn", req.CertificateCN, "reason", resp.Reason)
+			return resp, nil
+		}
+		slog.Info("cert auth accepted", "device", device.ID, "cn", req.CertificateCN, "serial", dc.Serial)
+		req.Password = "" // certificate replaces the secret credential
+	}
 	result, err := r.authorizeDevice(ctx, &product, &device, req, resp)
 	if err != nil {
 		return result, err
@@ -152,7 +175,9 @@ func (r *Resolver) authorizeDevice(ctx context.Context, product *models.Product,
 		resp.Reason = "device disabled"
 		return resp, nil
 	}
-	if device.Secret != "" {
+	// A validated client certificate (CertificateCN) replaces the secret:
+	// the certificate was already checked against device_certs above.
+	if device.Secret != "" && req.CertificateCN == "" {
 		got := req.Password
 		if subtle.ConstantTimeCompare([]byte(device.Secret), []byte(got)) != 1 {
 			resp.Reason = "invalid secret"

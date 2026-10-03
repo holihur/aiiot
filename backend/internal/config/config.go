@@ -18,7 +18,13 @@ import (
 type Config struct {
 	AppEnv   string
 	LogLevel string
-	HTTPAddr string
+	// LogFile enables a rotating log file (lumberjack): empty means stdout.
+	LogFile       string
+	LogMaxSizeMB  int
+	LogMaxBackups int
+	LogMaxAgeDays int
+	LogCompress   bool
+	HTTPAddr      string
 	// PublicHost is the host used to build connection instructions handed to
 	// devices. Empty means derive it from the request Host header.
 	PublicHost string
@@ -101,6 +107,11 @@ func Load() *Config {
 	return &Config{
 		AppEnv:        getStr("APP_ENV", "development"),
 		LogLevel:      getStr("LOG_LEVEL", "info"),
+		LogFile:       getStr("LOG_FILE", ""),
+		LogMaxSizeMB:  getInt("LOG_MAX_SIZE_MB", 100),
+		LogMaxBackups: getInt("LOG_MAX_BACKUPS", 5),
+		LogMaxAgeDays: getInt("LOG_MAX_AGE_DAYS", 14),
+		LogCompress:   getBool("LOG_COMPRESS", true),
 		HTTPAddr:      getStr("HTTP_ADDR", "0.0.0.0:8080"),
 		PublicHost:    getStr("PUBLIC_HOST", ""),
 		AdminUsername: getStr("ADMIN_USERNAME", "admin"),
@@ -187,6 +198,15 @@ func getInt(key string, def int) int {
 	if v, ok := os.LookupEnv(key); ok {
 		if n, err := strconv.Atoi(v); err == nil {
 			return n
+		}
+	}
+	return def
+}
+
+func getBool(key string, def bool) bool {
+	if v, ok := os.LookupEnv(key); ok {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
 		}
 	}
 	return def

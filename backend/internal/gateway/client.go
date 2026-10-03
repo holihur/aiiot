@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -109,6 +110,19 @@ func (c *Client) Authenticate(ctx context.Context, req *access.AuthRequest) (*ac
 		return nil, err
 	}
 	return &resp, nil
+}
+
+// GetDevicePSK fetches the DTLS-PSK secret for a device so the gateway can
+// answer the DTLS handshake (identity = deviceKey, PSK = secret bytes).
+func (c *Client) GetDevicePSK(ctx context.Context, deviceKey string) (string, error) {
+	var resp struct {
+		PSK string `json:"psk"`
+	}
+	ps := "deviceKey=" + url.QueryEscape(deviceKey)
+	if err := c.doJSON(ctx, http.MethodGet, "/internal/gateway/psk?"+ps, nil, &resp); err != nil {
+		return "", err
+	}
+	return resp.PSK, nil
 }
 
 func (c *Client) Uplink(ctx context.Context, msg *access.UplinkMessage) error {

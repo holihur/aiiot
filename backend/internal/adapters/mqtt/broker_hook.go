@@ -40,19 +40,26 @@ func (h *brokerHook) OnConnectAuthenticate(cl *mqtt.Client, pk packets.Packet) b
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	cn := clientCertCN(cl.Net.Conn)
 	resp, err := h.a.auth(ctx, &access.AuthRequest{
-		ProductKey: productKey,
-		DeviceKey:  deviceKey,
-		Username:   username,
-		Password:   password,
-		RemoteAddr: cl.Net.Remote,
-		Protocol:   access.ProtocolMQTTName,
-		Workspace:  tenantFromConn(cl.Net.Conn),
+		ProductKey:    productKey,
+		DeviceKey:     deviceKey,
+		Username:      username,
+		Password:      password,
+		RemoteAddr:    cl.Net.Remote,
+		Protocol:      access.ProtocolMQTTName,
+		Workspace:     tenantFromConn(cl.Net.Conn),
+		CertificateCN: clientCertCN(cl.Net.Conn),
 	})
 	if err != nil || resp == nil || !resp.Authorized {
-		h.a.log.Warn("mqtt device authentication denied", "username", username, "remote", cl.Net.Remote, "error", err)
+		reason := "denied"
+		if resp != nil {
+			reason = resp.Reason
+		}
+		h.a.log.Warn("mqtt device authentication denied", "username", username, "remote", cl.Net.Remote, "error", err, "reason", reason)
 		return false
 	}
+	h.a.log.Info("mqtt device authentication ok", "username", username, "remote", cl.Net.Remote, "cn", cn)
 	h.a.sessions.Store(cl.ID, resp)
 	atomic.AddInt64(&h.a.active, 1)
 	return true
@@ -164,4 +171,18 @@ func deviceRef(resp *access.AuthResponse) access.DeviceRef {
 		ProductKey:   resp.ProductKey,
 		DeviceKey:    resp.DeviceKey,
 	}
+}
+
+// clientCertCN returns the CommonName of the peer client certificate when the
+// connection is TLS with mutual authentication, or "".
+func clientCertCN(conn interface{ RemoteAddr() net.Addr }) string {
+	tc, ok := conn.(*tls.Conn)
+	if !ok {
+		return ""
+	}
+	state := tc.ConnectionState()
+	if len(state.PeerCertificates) == 0 {
+		return ""
+	}
+	return state.PeerCertificates[0].Subject.CommonName
 }

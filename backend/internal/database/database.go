@@ -79,6 +79,7 @@ func Migrate(db *gorm.DB, tcfg config.TelemetryConfig) error {
 		&models.DeviceGroupMember{},
 		&models.AuditLog{},
 		&models.AdminUser{},
+		&models.DeviceCert{},
 		&models.Setting{},
 	); err != nil {
 		return fmt.Errorf("automigrate: %w", err)

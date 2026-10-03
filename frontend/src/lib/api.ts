@@ -576,13 +576,25 @@ export const api = {
   latest: (id: number) => get<LatestValue[]>(`/devices/${id}/latest`),
   telemetry: (
     id: number,
-    p: { identifier?: string; from?: string; to?: string; interval?: string; limit?: number },
+    p: { identifier?: string; identifiers?: string[]; from?: string; to?: string; interval?: string; limit?: number },
   ) => {
     const qs = new URLSearchParams();
+    if (p.identifiers && p.identifiers.length > 0) {
+      qs.set("identifier", p.identifiers.join(","));
+    } else if (p.identifier) {
+      qs.set("identifier", p.identifier);
+    }
     Object.entries(p).forEach(([k, v]) => {
-      if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
+      if (k === "identifiers" || v === undefined || v === null || v === "") return;
+      qs.set(k, String(v));
     });
     return get<{ mode: string; source?: string; points: TelemetryPoint[] }>(`/devices/${id}/telemetry?${qs.toString()}`);
+  },
+  compare: (b: { deviceIds: number[]; identifiers: string[]; from?: string; to?: string; interval?: string }) => {
+    return post<{
+      interval: string;
+      series: { deviceId: number; deviceKey: string; identifier: string; points: { t: string; v: number | null }[] }[];
+    }>(`/telemetry/compare`, b);
   },
   events: (id: number, opts?: { q?: string; limit?: number }) => {
     const qs = new URLSearchParams();
@@ -729,8 +741,10 @@ export interface AdminUser {
 }
 
 export const adminApi = {
-  login: (username: string, password: string) =>
-    adminRequest<{ token: string; admin: AdminUser }>("POST", "/auth/login", { username, password }),
+  login: (username: string, password: string, totpCode?: string) =>
+    adminRequest<{ token: string; admin: AdminUser }>("POST", "/auth/login", {
+      username, password, ...(totpCode ? { totpCode } : {}),
+    }),
   me: () => adminRequest<AdminUser>("GET", "/auth/me"),
   changePassword: (oldPassword: string, newPassword: string) =>
     adminRequest<{ ok: boolean }>("POST", "/auth/password", { oldPassword, newPassword }),

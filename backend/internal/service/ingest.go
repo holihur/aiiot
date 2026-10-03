@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -92,6 +93,11 @@ func (s *IngestService) emit(e Event) {
 // Handle processes one normalized uplink message and records ingest metrics.
 // NATS delivers at-least-once, so a redelivered message is claimed in the
 // ingest_dedup table first; already-processed messages are dropped.
+// ErrInvalidUplink marks messages that can never parse or validate. They are
+// acknowledged (dropped) instead of redelivered, so a poisoned payload cannot
+// loop through NATS forever.
+var ErrInvalidUplink = errors.New("invalid uplink message")
+
 func (s *IngestService) Handle(ctx context.Context, msg *access.UplinkMessage) error {
 	start := time.Now()
 	key := ingestDedupKey(msg)
@@ -182,14 +188,14 @@ func (s *IngestService) handle(ctx context.Context, msg *access.UplinkMessage) e
 	case access.KindOTA:
 		return s.handleOTA(ctx, dc, msg)
 	default:
-		return fmt.Errorf("unsupported uplink kind %q", msg.Kind)
+		return fmt.Errorf("%w: unsupported uplink kind %q", ErrInvalidUplink, msg.Kind)
 	}
 }
 
 func (s *IngestService) handleProperty(ctx context.Context, dc *DeviceContext, msg *access.UplinkMessage) error {
 	params, value, err := decodePropertyPayload(msg)
 	if err != nil {
-		return fmt.Errorf("decode property payload: %w", err)
+		return fmt.Errorf("%w: decode property payload: %v", ErrInvalidUplink, err)
 	}
 	s.resolver.TouchSeen(ctx, dc.Device.ID)
 
@@ -197,7 +203,7 @@ func (s *IngestService) handleProperty(ctx context.Context, dc *DeviceContext, m
 		value = params[msg.Identifier]
 	}
 	if len(params) == 0 {
-		return fmt.Errorf("empty property payload")
+		return fmt.Errorf("%w: empty property payload", ErrInvalidUplink)
 	}
 
 	types := s.dataTypes(ctx, dc.Product.ID)

@@ -16,18 +16,26 @@ export default function AdminLoginPage() {
   const { t } = useI18n();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [totpCode, setTotpCode] = useState("");
+  const [totpRequired, setTotpRequired] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await adminApi.login(username, password);
+      const res = await adminApi.login(username, password, totpRequired ? totpCode : undefined);
       setAdminToken(res.token);
       toast.success(t("admin.signedIn"));
       navigate("/admin/gateways");
     } catch (err) {
-      toast.error((err as Error).message);
+      const msg = (err as Error).message;
+      if (msg.includes("two-factor")) {
+        setTotpRequired(true);
+        toast.error("Two-factor code required");
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -53,6 +61,20 @@ export default function AdminLoginPage() {
               <Label htmlFor="password">{t("admin.password")}</Label>
               <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
             </div>
+            {totpRequired && (
+              <div className="space-y-2">
+                <Label htmlFor="totp">Two-factor code</Label>
+                <Input
+                  id="totp"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="000000"
+                  value={totpCode}
+                  onChange={(e) => setTotpCode(e.target.value)}
+                  required
+                />
+              </div>
+            )}
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Signing in..." : "Sign in"}
             </Button>

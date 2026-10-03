@@ -9,6 +9,10 @@ type AdminUser struct {
 	PasswordHash string `gorm:"size:255;not null" json:"-"`
 	DisplayName  string `gorm:"size:120" json:"displayName"`
 	Status       string `gorm:"size:32;not null;default:active" json:"status"`
+	// TotpSecretEnc holds the AES-GCM sealed TOTP secret (platform secret
+	// derived key); TotpEnabled switches login 2FA on.
+	TotpSecretEnc string `gorm:"type:text" json:"-"`
+	TotpEnabled   bool   `gorm:"default:false" json:"totpEnabled"`
 }
 
 func (AdminUser) TableName() string { return "admin_users" }

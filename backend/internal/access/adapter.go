@@ -93,6 +93,10 @@ type AuthRequest struct {
 	// (TLS SNI / Host). When set, the core requires the device to belong to
 	// that workspace.
 	Workspace string `json:"workspace,omitempty"`
+	// CertificateCN is the CommonName of the client certificate the gateway
+	// already validated against the platform CA (device X.509 auth). When set,
+	// the device secret is not required.
+	CertificateCN string `json:"certificateCN,omitempty"`
 }
 
 // AuthResponse is returned by the core. Workspace fields are used by the
