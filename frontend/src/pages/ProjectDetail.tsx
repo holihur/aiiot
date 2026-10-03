@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -31,6 +33,36 @@ export default function ProjectDetailPage() {
   const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId) });
   const workspaces = useQuery({ queryKey: ["workspaces", projectId], queryFn: () => api.listWorkspaces(projectId) });
   const members = useQuery({ queryKey: ["members", projectId], queryFn: () => api.listMembers(projectId) });
+  const fences = useQuery({ queryKey: ["geofences", projectId], queryFn: () => api.listGeofences(projectId) });
+  const [fenceOpen, setFenceOpen] = useState(false);
+  const [fenceForm, setFenceForm] = useState({ name: "", polygon: "" });
+  const createFence = useMutation({
+    mutationFn: () => {
+      const coordinates = JSON.parse(fenceForm.polygon) as number[][][];
+      return api.createGeofence(projectId, { name: fenceForm.name.trim(), polygon: { type: "Polygon", coordinates } });
+    },
+    onSuccess: () => {
+      toast.success("Geofence created");
+      setFenceOpen(false);
+      setFenceForm({ name: "", polygon: "" });
+      void qc.invalidateQueries({ queryKey: ["geofences", projectId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const toggleFence = useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) => {
+      const f = fences.data?.find((x) => x.id === id);
+      if (!f) throw new Error("missing fence");
+      return api.updateGeofence(id, { name: f.name, polygon: f.polygon, enabled });
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["geofences", projectId] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const removeFence = useMutation({
+    mutationFn: (id: number) => api.deleteGeofence(id),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["geofences", projectId] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
   // Role-aware UI: viewers get read-only affordances.
   const canManage = ["owner", "admin", "member"].includes(project.data?.myRole ?? "");
   const canAdmin = ["owner", "admin"].includes(project.data?.myRole ?? "");
@@ -281,6 +313,37 @@ export default function ProjectDetailPage() {
             ))}
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base">Geofences <Badge variant="secondary">{fences.data?.length ?? 0}</Badge></CardTitle>
+            <Button size="sm" variant="outline" onClick={() => setFenceOpen(true)}>
+              <Plus className="h-4 w-4" /> Add
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {(fences.data ?? []).length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No fences yet. Devices reporting a gps attribute inside a fence are tagged so rules can match
+                {" "}"zone" in params["geofences"].
+              </p>
+            )}
+            {(fences.data ?? []).map((f) => (
+              <div key={f.id} className="flex items-center justify-between rounded-lg border p-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{f.name}</span>
+                  <Badge variant={f.enabled ? "success" : "secondary"}>{f.enabled ? "on" : "off"}</Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch checked={f.enabled} onCheckedChange={(v) => toggleFence.mutate({ id: f.id, enabled: v })} />
+                  <Button variant="ghost" size="icon" onClick={() => removeFence.mutate(f.id)}>
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
       </div>
 
       <Dialog open={!!wsEdit} onOpenChange={(o) => !o && setWsEdit(null)}>
@@ -342,6 +405,40 @@ export default function ProjectDetailPage() {
               {t("common.save")}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={fenceOpen} onOpenChange={setFenceOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New geofence</DialogTitle>
+            <DialogDescription>Paste a GeoJSON polygon ring coordinates ([[lng,lat],...], first == last).</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input value={fenceForm.name} onChange={(e) => setFenceForm({ ...fenceForm, name: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label>Polygon coordinates</Label>
+              <Textarea
+                className="font-mono text-xs"
+                rows={4}
+                placeholder="[[[121.46,31.22],[121.49,31.22],[121.49,31.24],[121.46,31.24],[121.46,31.22]]]"
+                value={fenceForm.polygon}
+                onChange={(e) => setFenceForm({ ...fenceForm, polygon: e.target.value })}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setFenceOpen(false)}>{t("common.cancel")}</Button>
+              <Button
+                onClick={() => createFence.mutate()}
+                disabled={createFence.isPending || !fenceForm.name.trim() || !fenceForm.polygon.trim()}
+              >
+                {t("common.save")}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

@@ -23,13 +23,22 @@ function tileUrl(): string | "" {
   return "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 }
 
+export interface FenceGeo {
+  name: string;
+  coordinates: number[][][] | number[][];
+}
+
 export function MapView({
   points,
   track,
+  fences,
+  heat,
   onSelect,
 }: {
   points: MapPoint[];
   track?: { lat: number; lng: number }[];
+  fences?: FenceGeo[];
+  heat?: boolean;
   onSelect?: (key: string) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
@@ -51,9 +60,39 @@ export function MapView({
           },
           devices: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
           track: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
+          fences: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
+          heatrender: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
         },
         layers: [
           { id: "basemap", type: "raster", source: "basemap" },
+          {
+            id: "fence-fill",
+            type: "fill",
+            source: "fences",
+            paint: { "fill-color": "#8b5cf6", "fill-opacity": 0.12 },
+          },
+          {
+            id: "fence-line",
+            type: "line",
+            source: "fences",
+            paint: { "line-color": "#8b5cf6", "line-width": 2 },
+          },
+          {
+            id: "heat-line",
+            type: "heatmap",
+            source: "heatrender",
+            paint: {
+              "heatmap-weight": 1,
+              "heatmap-intensity": 2,
+              "heatmap-color": [
+                "interpolate", ["linear"], ["heatmap-density"],
+                0, "rgba(16,185,129,0)",
+                0.4, "rgba(16,185,129,0.6)",
+                0.8, "rgba(245,158,11,0.8)",
+                1, "rgba(239,68,68,0.95)",
+              ],
+            },
+          },
           {
             id: "track-line",
             type: "line",
@@ -106,21 +145,36 @@ export function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // update device points
+  // update device points (circles hidden when heat mode is on)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const src = map.getSource("devices") as maplibregl.GeoJSONSource | undefined;
-    if (!src) return;
-    src.setData({
-      type: "FeatureCollection",
-      features: points.map((p) => ({
-        type: "Feature" as const,
-        geometry: { type: "Point" as const, coordinates: [p.lng, p.lat] },
-        properties: { key: p.key, name: p.name, online: p.online },
-      })),
-    });
-  }, [points]);
+    if (src) {
+      src.setData({
+        type: "FeatureCollection",
+        features: points.map((p) => ({
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: [p.lng, p.lat] },
+          properties: { key: p.key, name: p.name, online: p.online },
+        })),
+      });
+    }
+    const heatSrc = map.getSource("heatrender") as maplibregl.GeoJSONSource | undefined;
+    if (heatSrc) {
+      heatSrc.setData({
+        type: "FeatureCollection",
+        features: points.map((p) => ({
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: [p.lng, p.lat] },
+          properties: {},
+        })),
+      });
+    }
+    map.setLayoutProperty("devices-online", "visibility", heat ? "none" : "visible");
+    map.setLayoutProperty("devices-offline", "visibility", heat ? "none" : "visible");
+    map.setLayoutProperty("heat-line", "visibility", heat ? "visible" : "none");
+  }, [points, heat]);
 
   // update the live track polyline
   useEffect(() => {
@@ -139,6 +193,22 @@ export function MapView({
       ],
     });
   }, [track]);
+
+  // update geofence polygons
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const src = map.getSource("fences") as maplibregl.GeoJSONSource | undefined;
+    if (!src) return;
+    src.setData({
+      type: "FeatureCollection",
+      features: (fences ?? []).map((f) => ({
+        type: "Feature",
+        geometry: { type: "Polygon", coordinates: f.coordinates },
+        properties: { name: f.name },
+      })),
+    });
+  }, [fences]);
 
   return <div ref={container} className="h-64 w-full rounded-lg border" />;
 }

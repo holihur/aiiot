@@ -35,6 +35,7 @@ type Handlers struct {
 	GatewayToken string
 	Certs        *certs.Manager // device X.509; nil disables cert APIs
 	TOTP         *totp.Cipher   // admin 2FA; nil disables the endpoints
+	Geofence     *service.GeofenceService
 	// PublicHost is advertised to devices in connection instructions.
 	PublicHost string
 	// RetentionDefault is the configured telemetry retention when no runtime

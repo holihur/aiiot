@@ -326,6 +326,15 @@ export interface DashboardPanel {
   config?: Record<string, unknown>;
 }
 
+export interface Geofence {
+  id: number;
+  projectId: number;
+  workspaceId: number;
+  name: string;
+  enabled: boolean;
+  polygon: { type: "Polygon"; coordinates: unknown[][][] };
+}
+
 export interface DashboardBoard {
   id: number;
   projectId: number;
@@ -700,7 +709,15 @@ export const api = {
       `/projects/${projectId}/alerts${q ? `?${q}` : ""}`,
     );
   },
-  // project/workspace multi-dashboards (no user-level boards)
+  listGeofences: (projectId: number, workspaceId = 0) =>
+    get<Geofence[]>(`/projects/${projectId}/geofences${workspaceId ? `?workspaceId=${workspaceId}` : ""}`),
+  createGeofence: (projectId: number, b: { name: string; polygon: Record<string, unknown>; workspaceId?: number; enabled?: boolean }) =>
+    post<Geofence>(`/projects/${projectId}/geofences`, b),
+  updateGeofence: (id: number, b: { name: string; polygon: Record<string, unknown>; workspaceId?: number; enabled?: boolean }) =>
+    put<Geofence>(`/geofences/${id}`, b),
+  deleteGeofence: (id: number) => del<{ ok: boolean }>(`/geofences/${id}`),
+  devicesGeoJson: (projectId: number) =>
+    get<{ type: string; features: Record<string, unknown>[] }>(`/projects/${projectId}/devices/geojson`),
   listDashboards: (projectId: number) => get<DashboardBoard[]>(`/projects/${projectId}/dashboards`),
   getDashboard: (id: number) => get<DashboardBoard>(`/dashboards/${id}`),
   putDashboard: (id: number, body: { panels: DashboardPanel[]; name?: string }) =>

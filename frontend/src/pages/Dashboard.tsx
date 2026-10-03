@@ -226,7 +226,7 @@ function AlertsPanel({ projectId }: { projectId: number }) {
 // device is tracked, keeps its GPS marker moving and draws the accumulated
 // track (L2). Positions come from device tags lat/lng or a "gps" JSON
 // attribute reported via telemetry (latest cache).
-function MapPanel({ devices }: { devices: Device[] }) {
+function MapPanel({ devices, projectId }: { devices: Device[]; projectId: number }) {
   const geo = devices.filter((d) => {
     const t = d.tags as Record<string, unknown> | undefined;
     return t && typeof t.lat === "number" && typeof t.lng === "number";
@@ -240,6 +240,17 @@ function MapPanel({ devices }: { devices: Device[] }) {
   }));
   const [tracked, setTracked] = useState<string>("");
   const [track, setTrack] = useState<{ lat: number; lng: number }[]>([]);
+  const [heatMode, setHeatMode] = useState(false);
+  const [showFences, setShowFences] = useState(true);
+  const fences = useQuery({
+    queryKey: ["geofences", projectId],
+    queryFn: () => api.listGeofences(projectId || 0),
+    enabled: !!projectId,
+  });
+  const fenceGeo = (fences.data ?? []).filter((f) => f.enabled).map((f) => ({
+    name: f.name,
+    coordinates: f.polygon.coordinates as number[][][],
+  }));
 
   const gps = useQuery({
     queryKey: ["latest", tracked],
@@ -283,10 +294,29 @@ function MapPanel({ devices }: { devices: Device[] }) {
             </SelectContent>
           </Select>
           {track.length > 0 && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">live · {track.length} pts</span>}
+          <button
+            type="button"
+            onClick={() => setHeatMode((v) => !v)}
+            className={`rounded border px-1.5 py-0.5 text-[10px] ${heatMode ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+          >
+            heat
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowFences((v) => !v)}
+            className={`rounded border px-1.5 py-0.5 text-[10px] ${showFences ? "bg-muted" : ""}`}
+          >
+            fences {fenceGeo.length}
+          </button>
         </div>
       </div>
       {points.length > 0 ? (
-        <MapView points={points} track={track.length >= 2 ? track : undefined} />
+        <MapView
+          points={points}
+          track={track.length >= 2 ? track : undefined}
+          fences={showFences ? fenceGeo : undefined}
+          heat={heatMode}
+        />
       ) : (
         <p className="py-6 text-center text-sm text-muted-foreground">
           Set device tags lat/lng (or report a "gps" json attribute) to plot positions
@@ -539,7 +569,7 @@ export default function DashboardPage() {
               >
                 {p.type === "stat" && <StatPanel panel={p} devices={devices.data ?? []} />}
                 {p.type === "trend" && <TrendPanel panel={p} devices={devices.data ?? []} />}
-                {p.type === "map" && <MapPanel devices={devices.data ?? []} />}
+                {p.type === "map" && <MapPanel devices={devices.data ?? []} projectId={projectId} />}
                 {p.type === "alerts" && <AlertsPanel projectId={projectId} />}
                 {p.type === "devices" && <DevicesPanel devices={devices.data ?? []} />}
                 {p.type === "text" && (

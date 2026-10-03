@@ -29,6 +29,7 @@ type IngestService struct {
 	shadow    *ShadowService
 	ota       *OTAService
 	hub       *Hub
+	geofence  *GeofenceService
 	evBus     EventBus // NATS fan-out across replicas (SSE); nil = local only
 	log       *slog.Logger
 
@@ -49,7 +50,7 @@ type thingTypes struct {
 	expires      time.Time
 }
 
-func NewIngestService(db *gorm.DB, resolver *Resolver, telemetry *TelemetryService, rules *RuleEngine, downlink *DownlinkService, shadow *ShadowService, ota *OTAService, hub *Hub, offlineAfter time.Duration, log *slog.Logger) *IngestService {
+func NewIngestService(db *gorm.DB, resolver *Resolver, telemetry *TelemetryService, rules *RuleEngine, downlink *DownlinkService, shadow *ShadowService, ota *OTAService, hub *Hub, geofence *GeofenceService, offlineAfter time.Duration, log *slog.Logger) *IngestService {
 	if offlineAfter <= 0 {
 		offlineAfter = 5 * time.Minute
 	}
@@ -62,6 +63,7 @@ func NewIngestService(db *gorm.DB, resolver *Resolver, telemetry *TelemetryServi
 		shadow:       shadow,
 		ota:          ota,
 		hub:          hub,
+		geofence:     geofence,
 		log:          log,
 		offlineAfter: offlineAfter,
 		types:        map[uint]thingTypes{},
@@ -229,6 +231,15 @@ func (s *IngestService) handleProperty(ctx context.Context, dc *DeviceContext, m
 		smp.Time = msg.Timestamp
 		samples = append(samples, smp)
 
+		// geofence tagging: a "gps" json attribute positions the device inside
+		// the project's enabled fences; rules can test `"zone-a" in geofences`.
+		if identifier == "gps" && s.geofence != nil {
+			if lat, lng, ok := gpsFromParams(v); ok {
+				if names := s.geofence.Match(dc.Project.ID, lat, lng); len(names) > 0 {
+					params["geofences"] = names
+				}
+			}
+		}
 		s.rules.Evaluate(ctx, &RuleEvent{
 			Kind:        access.KindProperty,
 			ProjectID:   dc.Project.ID,
@@ -518,4 +529,15 @@ func inferType(v any) string {
 	default:
 		return "json"
 	}
+}
+
+// gpsFromParams extracts lat/lng from a reported gps attribute value.
+func gpsFromParams(v any) (lat, lng float64, ok bool) {
+	m, isMap := v.(map[string]any)
+	if !isMap {
+		return 0, 0, false
+	}
+	la, ok1 := toFloat(m["lat"])
+	lo, ok2 := toFloat(m["lng"])
+	return la, lo, ok1 && ok2
 }

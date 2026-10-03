@@ -104,7 +104,8 @@ func main() {
 			Device:      dc.Device,
 		})
 	})
-	ingest := service.NewIngestService(db, resolver, telemetry, rules, downlink, shadow, ota, hub, cfg.Ingest.DeviceOfflineAfter, log)
+	geofence := service.NewGeofenceService(db, log)
+	ingest := service.NewIngestService(db, resolver, telemetry, rules, downlink, shadow, ota, hub, geofence, cfg.Ingest.DeviceOfflineAfter, log)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -179,6 +180,9 @@ func main() {
 	if err := rules.Reload(ctx); err != nil {
 		log.Warn("initial rule reload failed", "error", err)
 	}
+	if err := geofence.Reload(ctx); err != nil {
+		log.Warn("initial geofence reload failed", "error", err)
+	}
 
 	handlers := &api.Handlers{
 		DB:               db,
@@ -197,6 +201,7 @@ func main() {
 		GatewayToken:     cfg.Gateway.Token,
 		Certs:            certMgr,
 		TOTP:             totpCipher,
+		Geofence:         geofence,
 		PublicHost:       cfg.PublicHost,
 		RetentionDefault: cfg.Telemetry.RetentionDays,
 		Log:              log,
