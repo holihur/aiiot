@@ -5,7 +5,7 @@
 // For offline/private deployments point VITE_MAP_TILES_URL at an internal
 // tile server (or leave it empty and only the GeoJSON layers render).
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
@@ -33,14 +33,21 @@ export function MapView({
   track,
   fences,
   heat,
+  drawMode,
+  initialVertices,
   onSelect,
+  onDrawn,
 }: {
   points: MapPoint[];
   track?: { lat: number; lng: number }[];
   fences?: FenceGeo[];
   heat?: boolean;
+  drawMode?: boolean;
+  initialVertices?: [number, number][];
   onSelect?: (key: string) => void;
+  onDrawn?: (coords: number[][]) => void;
 }) {
+  const [verts, setVerts] = useState<[number, number][]>([]);
   const container = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
 
@@ -62,9 +69,23 @@ export function MapView({
           track: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
           fences: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
           heatrender: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
+          draw: { type: "geojson", data: { type: "FeatureCollection", features: [] } },
         },
         layers: [
           { id: "basemap", type: "raster", source: "basemap" },
+          {
+            id: "draw-poly",
+            type: "fill",
+            source: "draw",
+            filter: ["==", ["geometry-type"], "Polygon"],
+            paint: { "fill-color": "#ef4444", "fill-opacity": 0.15 },
+          },
+          {
+            id: "draw-line",
+            type: "line",
+            source: "draw",
+            paint: { "line-color": "#ef4444", "line-width": 2, "line-dasharray": [2, 1] },
+          },
           {
             id: "fence-fill",
             type: "fill",
@@ -145,6 +166,54 @@ export function MapView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ---- draw mode: click to add vertices, toolbar to finish / undo ----
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !drawMode) return;
+    // preload existing vertices when editing a fence
+    if (initialVertices && initialVertices.length >= 2) setVerts(initialVertices);
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      const c: [number, number] = [Number(e.lngLat.lng.toFixed(6)), Number(e.lngLat.lat.toFixed(6))];
+      setVerts((prev) => [...prev, c]);
+    };
+    map.on("click", onClick);
+    return () => {
+      map.off("click", onClick);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawMode]);
+
+  // render the in-progress polygon from the collected vertices
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const src = map.getSource("draw") as maplibregl.GeoJSONSource | undefined;
+    if (!src || verts.length === 0) return;
+    src.setData({
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          geometry:
+            verts.length < 3
+              ? { type: "LineString", coordinates: verts }
+              : { type: "Polygon", coordinates: [verts, ...(verts.length > 3 ? [] : [])] },
+          properties: {},
+        },
+      ],
+    });
+  }, [verts]);
+
+  // clean the draw layer when leaving draw mode
+  useEffect(() => {
+    if (drawMode) return;
+    setVerts([]);
+    const map = mapRef.current;
+    const src = map?.getSource("draw") as maplibregl.GeoJSONSource | undefined;
+    if (src) src.setData({ type: "FeatureCollection", features: [] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawMode]);
+
   // update device points (circles hidden when heat mode is on)
   useEffect(() => {
     const map = mapRef.current;
@@ -210,7 +279,42 @@ export function MapView({
     });
   }, [fences]);
 
-  return <div ref={container} className="h-64 w-full rounded-lg border" />;
+  return (
+    <div className="relative">
+      <div ref={container} className="h-64 w-full rounded-lg border" />
+      {drawMode && (
+        <div className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded-md border bg-background/90 p-1 shadow">
+          <span className="px-1 text-[10px] text-muted-foreground">{verts.length} pts · click map</span>
+          <button
+            type="button"
+            className="rounded border px-1.5 py-0.5 text-[10px] hover:bg-muted"
+            disabled={verts.length < 3}
+            onClick={() => {
+              if (verts.length >= 3 && onDrawn) onDrawn(verts);
+              setVerts([]);
+            }}
+          >
+            finish
+          </button>
+          <button
+            type="button"
+            className="rounded border px-1.5 py-0.5 text-[10px] hover:bg-muted"
+            disabled={verts.length === 0}
+            onClick={() => setVerts((prev) => prev.slice(0, -1))}
+          >
+            undo
+          </button>
+          <button
+            type="button"
+            className="rounded border px-1.5 py-0.5 text-[10px] hover:bg-muted"
+            onClick={() => setVerts([])}
+          >
+            clear
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function zoomFor(points: MapPoint[]): number {

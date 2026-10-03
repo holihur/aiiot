@@ -222,6 +222,15 @@ export default function DeviceDetailPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const updateTags = useMutation({
+    mutationFn: (tags: Record<string, unknown>) => api.updateDevice(deviceId, { tags }),
+    onSuccess: () => {
+      toast.success("Location saved");
+      void qc.invalidateQueries({ queryKey: ["device", deviceId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const [peerTarget, setPeerTarget] = useState("");
   const [peerBroadcast, setPeerBroadcast] = useState(false);
   const [peerPayload, setPeerPayload] = useState('{"msg": "hello"}');
@@ -813,6 +822,47 @@ export default function DeviceDetailPage() {
               <CardTitle className="text-base">{t("device.settingsTitle")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>位置 GIS</Label>
+                </div>
+                <div className="grid max-w-md grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Latitude</Label>
+                    <Input
+                      type="number"
+                      step="any"
+                      defaultValue={Number((d?.tags as Record<string, unknown> | undefined)?.lat) || 0}
+                      id="lat"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Longitude</Label>
+                    <Input
+                      type="number"
+                      step="any"
+                      defaultValue={Number((d?.tags as Record<string, unknown> | undefined)?.lng) || 0}
+                      id="lng"
+                    />
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    const lat = Number((document.getElementById("lat") as HTMLInputElement).value);
+                    const lng = Number((document.getElementById("lng") as HTMLInputElement).value);
+                    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+                      toast.error("Invalid coordinates");
+                      return;
+                    }
+                    const tags: Record<string, unknown> = { ...((d?.tags as Record<string, unknown>) ?? {}), lat, lng };
+                    updateTags.mutate(tags);
+                  }}
+                >
+                  保存位置点
+                </Button>
+              </div>
               <div className="flex flex-wrap gap-3">
                 <Button variant="outline" onClick={() => rotate.mutate()}>
                   <KeyRound className="h-4 w-4" /> {t("device.rotateSecret")}

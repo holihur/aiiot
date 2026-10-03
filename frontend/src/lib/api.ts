@@ -585,7 +585,7 @@ export const api = {
   createDevice: (productId: number, b: { name: string; workspaceId: number; key?: string; secret?: string }) =>
     post<{ device: Device; secret: string }>(`/products/${productId}/devices`, b),
   getDevice: (id: number) => get<Device>(`/devices/${id}`),
-  updateDevice: (id: number, b: { name?: string; workspaceId?: number }) => put<Device>(`/devices/${id}`, b),
+  updateDevice: (id: number, b: { name?: string; workspaceId?: number; tags?: Record<string, unknown> }) => put<Device>(`/devices/${id}`, b),
   deleteDevice: (id: number) => del<{ ok: boolean }>(`/devices/${id}`),
   setDeviceStatus: (id: number, status: "enabled" | "disabled") =>
     put<Device>(`/devices/${id}/status`, { status }),

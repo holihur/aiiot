@@ -199,7 +199,21 @@ func (h *Handlers) startDemoSimulator(projectID uint, devs []dev) {
 				// temperature drifts 25..38, occasionally above the 30°C rule
 				temp := 25 + rand.Float64()*13
 				hum := 40 + rand.Float64()*30
-				payload, _ := json.Marshal(map[string]float64{"temperature": temp, "humidity": hum})
+				// gps drifts inside the demo zone-a fence so GIS maps/tracks
+				// and the geofence rule have live data to show
+				baseLat, baseLng := 31.2304, 121.4737
+				if devIdx == 1 {
+					baseLat, baseLng = 31.2354, 121.4687
+				} else if devIdx == 2 {
+					baseLat, baseLng = 31.2254, 121.4787
+				}
+				gps := map[string]float64{
+					"lat": baseLat + (rand.Float64()-0.5)*0.004,
+					"lng": baseLng + (rand.Float64()-0.5)*0.004,
+				}
+				payload, _ := json.Marshal(map[string]any{
+					"temperature": temp, "humidity": hum, "gps": gps,
+				})
 				msg := &access.UplinkMessage{
 					Protocol:   access.ProtocolMQTTName,
 					Device:     access.DeviceRef{ProductKey: "demo-sensor", DeviceKey: d.key},
