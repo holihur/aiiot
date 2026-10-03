@@ -32,6 +32,15 @@ type deviceRequest struct {
 	Tags        models.JSONMap `json:"tags"`
 }
 
+// updateDeviceRequest is the loose-form update payload: only the non-zero
+// fields are applied, so callers can update tags without resending the name.
+type updateDeviceRequest struct {
+	Name        string         `json:"name" binding:"omitempty,max=160"`
+	WorkspaceID uint           `json:"workspaceId"`
+	Status      string         `json:"status"`
+	Tags        models.JSONMap `json:"tags"`
+}
+
 // ListProjectDevices lists devices across a project with optional filters.
 func (h *Handlers) ListProjectDevices(c *gin.Context) {
 	projectID, valid := parseID(c, "id")
@@ -185,13 +194,16 @@ func (h *Handlers) UpdateDevice(c *gin.Context) {
 	if !allowed {
 		return
 	}
-	var req deviceRequest
+	var req updateDeviceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	if req.Name != "" {
 		device.Name = req.Name
+	}
+	if req.Status != "" {
+		device.Status = req.Status
 	}
 	if req.WorkspaceID != 0 && req.WorkspaceID != device.WorkspaceID {
 		var ws models.Workspace
