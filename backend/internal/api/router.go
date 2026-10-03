@@ -57,6 +57,7 @@ func NewRouter(h *Handlers) *gin.Engine {
 
 		auth.GET("/projects/:id/workspaces", h.ListWorkspaces)
 		auth.POST("/projects/:id/workspaces", h.CreateWorkspace)
+		auth.POST("/projects/:id/transfer-owner", h.TransferOwner)
 		auth.PUT("/workspaces/:id", h.UpdateWorkspace)
 		auth.DELETE("/workspaces/:id", h.DeleteWorkspace)
 		auth.GET("/workspaces/:id/devices", h.ListWorkspaceDevices)

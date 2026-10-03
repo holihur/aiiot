@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { useEventStream } from "@/lib/useEventStream";
 import { useProjectRole } from "@/lib/useProjectRole";
 import { useI18n } from "@/lib/i18n";
+import { MapView, type MapPoint } from "@/components/MapView";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -221,59 +222,75 @@ function AlertsPanel({ projectId }: { projectId: number }) {
   );
 }
 
-// MapPanel renders device coordinates (tags.lat / tags.lng) as a plain SVG
-// scatter plot — no map-tile dependency. Devices without coordinates are
-// listed beside the plot.
+// MapPanel renders device positions on a MapLibre base map (L1) and, when a
+// device is tracked, keeps its GPS marker moving and draws the accumulated
+// track (L2). Positions come from device tags lat/lng or a "gps" JSON
+// attribute reported via telemetry (latest cache).
 function MapPanel({ devices }: { devices: Device[] }) {
   const geo = devices.filter((d) => {
     const t = d.tags as Record<string, unknown> | undefined;
     return t && typeof t.lat === "number" && typeof t.lng === "number";
   });
-  const W = 420, H = 240, PAD = 18;
-  const lats = geo.map((d) => (d.tags as Record<string, number>).lat);
-  const lngs = geo.map((d) => (d.tags as Record<string, number>).lng);
-  const minLat = Math.min(...lats, 0), maxLat = Math.max(...lats, 1);
-  const minLng = Math.min(...lngs, 0), maxLng = Math.max(...lngs, 1);
-  const x = (lng: number) => PAD + ((lng - minLng) / (maxLng - minLng || 1)) * (W - 2 * PAD);
-  const y = (lat: number) => PAD + ((maxLat - lat) / (maxLat - minLat || 1)) * (H - 2 * PAD);
-  const other = devices.filter((d) => !geo.includes(d));
+  const points: MapPoint[] = geo.map((d) => ({
+    key: d.key,
+    name: d.name,
+    online: d.online,
+    lat: (d.tags as Record<string, number>).lat,
+    lng: (d.tags as Record<string, number>).lng,
+  }));
+  const [tracked, setTracked] = useState<string>("");
+  const [track, setTrack] = useState<{ lat: number; lng: number }[]>([]);
+
+  const gps = useQuery({
+    queryKey: ["latest", tracked],
+    queryFn: () => (tracked ? api.latest(Number(tracked)) : Promise.resolve([])),
+    enabled: !!tracked,
+    refetchInterval: 8000,
+  });
+
+  // accumulate positions from the "gps" json attribute (keep the last 200)
+  useEffect(() => {
+    const v = (gps.data ?? []).find((x) => x.identifier === "gps");
+    const raw = v?.jsonValue as unknown;
+    const lat = (raw as { lat?: unknown } | undefined)?.lat;
+    const lng = (raw as { lng?: unknown } | undefined)?.lng;
+    if (typeof lat === "number" && typeof lng === "number") {
+      const pt = { lat, lng };
+      setTrack((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.lat === lat && last.lng === lng) return prev;
+        return [...prev.slice(-199), pt];
+      });
+    }
+  }, [gps.data]);
+
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-        <span>{geo.length} located · {devices.length} total</span>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>{points.length} located · {devices.length} total</span>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs text-muted-foreground">track</Label>
+          <Select value={tracked} onValueChange={(v) => { setTracked(v); setTrack([]); }}>
+            <SelectTrigger className="h-7 w-40 text-xs">
+              <SelectValue placeholder="select device" />
+            </SelectTrigger>
+            <SelectContent>
+              {devices.map((d) => (
+                <SelectItem key={d.id} value={String(d.id)}>
+                  {d.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {track.length > 0 && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px]">live · {track.length} pts</span>}
+        </div>
       </div>
-      {geo.length > 0 ? (
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full rounded border bg-background">
-          {geo.map((d, i) => (
-            <g key={d.id}>
-              <circle
-                cx={x((d.tags as Record<string, number>).lng)}
-                cy={y((d.tags as Record<string, number>).lat)}
-                r={6}
-                className="fill-primary/80"
-              >
-                <title>{`${d.name} (${(d.tags as Record<string, number>).lat}, ${(d.tags as Record<string, number>).lng})`}</title>
-              </circle>
-            </g>
-          ))}
-          <text x={PAD} y={H - 4} fontSize={9} fill="currentColor" opacity={0.6}>
-            lat {minLat.toFixed(1)}–{maxLat.toFixed(1)} · lng {minLng.toFixed(1)}–{maxLng.toFixed(1)}
-          </text>
-        </svg>
+      {points.length > 0 ? (
+        <MapView points={points} track={track.length >= 2 ? track : undefined} />
       ) : (
         <p className="py-6 text-center text-sm text-muted-foreground">
-          Set device tags lat/lng to plot positions
+          Set device tags lat/lng (or report a "gps" json attribute) to plot positions
         </p>
-      )}
-      {other.length > 0 && (
-        <div className="mt-2 space-y-1">
-          {other.slice(0, 5).map((d) => (
-            <div key={d.id} className="flex items-center justify-between text-xs">
-              <span className="min-w-0 truncate">{d.name}</span>
-              <Badge variant={d.online ? "success" : "secondary"}>{d.online ? "online" : "offline"}</Badge>
-            </div>
-          ))}
-        </div>
       )}
     </div>
   );

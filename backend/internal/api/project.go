@@ -326,6 +326,67 @@ func (h *Handlers) RemoveMember(c *gin.Context) {
 	ok(c, gin.H{"ok": true})
 }
 
+// transferOwnerRequest names the member who should become the new owner.
+type transferOwnerRequest struct {
+	UserID uint `json:"userId" binding:"required"`
+}
+
+// TransferOwner hands the project's OwnerID (and the sole owner member row)
+// to an existing member. Only the current owner (or a system admin) may
+// transfer; the new owner must already be a member of the project.
+func (h *Handlers) TransferOwner(c *gin.Context) {
+	id, valid := parseID(c, "id")
+	if !valid {
+		return
+	}
+	if !h.requireProject(c, id, models.ProjectRoleOwner) {
+		return
+	}
+	var req transferOwnerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	var project models.Project
+	if err := h.DB.First(&project, id).Error; err != nil {
+		fail(c, http.StatusNotFound, "project not found")
+		return
+	}
+	if req.UserID == project.OwnerID {
+		ok(c, gin.H{"ok": true, "unchanged": true})
+		return
+	}
+	// the target must already be a member
+	var n int64
+	h.DB.Model(&models.ProjectMember{}).Where("project_id = ? AND user_id = ?", id, req.UserID).Count(&n)
+	if n == 0 {
+		fail(c, http.StatusBadRequest, "the new owner must be a project member (add them first)")
+		return
+	}
+	err := h.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.Project{}).Where("id = ?", id).
+			Update("owner_id", req.UserID).Error; err != nil {
+			return err
+		}
+		// promote target member row to owner
+		if err := tx.Model(&models.ProjectMember{}).
+			Where("project_id = ? AND user_id = ?", id, req.UserID).
+			Update("role", models.ProjectRoleOwner).Error; err != nil {
+			return err
+		}
+		// demote every other owner member (the OwnerID column is the source of
+		// truth afterwards)
+		return tx.Model(&models.ProjectMember{}).
+			Where("project_id = ? AND role = ? AND user_id <> ?", id, models.ProjectRoleOwner, req.UserID).
+			Update("role", models.ProjectRoleAdmin).Error
+	})
+	if err != nil {
+		fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	ok(c, gin.H{"ok": true, "ownerId": req.UserID})
+}
+
 // ownerCount returns how many owner members a project currently has.
 func (h *Handlers) ownerCount(projectID uint) int64 {
 	var n int64

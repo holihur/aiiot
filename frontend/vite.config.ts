@@ -23,6 +23,7 @@ export default defineConfig({
           vendor: ["react", "react-dom", "react-router-dom"],
           query: ["@tanstack/react-query"],
           charts: ["recharts"],
+          mapgl: ["maplibre-gl"],
         },
       },
     },
