@@ -364,12 +364,14 @@ export default function DashboardPage() {
 
   const [boardOpen, setBoardOpen] = useState(false);
   const [boardName, setBoardName] = useState("");
+  const [boardWs, setBoardWs] = useState(0);
   const createBoard = useMutation({
-    mutationFn: () => api.createDashboard(projectId || 0, boardName.trim() || "看板"),
+    mutationFn: () => api.createDashboard(projectId || 0, boardName.trim() || "看板", boardWs),
     onSuccess: (b) => {
       toast.success("Dashboard created");
       setBoardOpen(false);
       setBoardName("");
+      setBoardWs(0);
       setBoardId(b.id);
       void qc.invalidateQueries({ queryKey: ["dashboards", projectId] });
     },
@@ -431,15 +433,21 @@ export default function DashboardPage() {
           {(boards.data?.length ?? 0) > 0 && !editing && (
             <div className="flex items-center gap-1">
               <Select value={String(effectiveBoardId)} onValueChange={(v) => setBoardId(Number(v))}>
-                <SelectTrigger className="w-44">
+                <SelectTrigger className="w-52">
                   <SelectValue placeholder="select dashboard" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(boards.data ?? []).map((b) => (
-                    <SelectItem key={b.id} value={String(b.id)}>
-                      {b.name || `#${b.id}`}
-                    </SelectItem>
-                  ))}
+                  {(boards.data ?? []).map((b) => {
+                    const ws = b.workspaceId ? (workspaces.data ?? []).find((w) => w.id === b.workspaceId) : undefined;
+                    return (
+                      <SelectItem key={b.id} value={String(b.id)}>
+                        {b.name || `#${b.id}`}
+                        <span className="ml-1 text-xs text-muted-foreground">
+                          · {ws ? ws.name : "项目级"}
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
               {canWrite && (
@@ -612,6 +620,22 @@ export default function DashboardPage() {
                 }}
                 placeholder="e.g. 产线大屏"
               />
+            </div>
+            <div className="space-y-2">
+              <Label>Scope</Label>
+              <Select value={String(boardWs)} onValueChange={(v) => setBoardWs(Number(v))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0">项目级</SelectItem>
+                  {(workspaces.data ?? []).map((w) => (
+                    <SelectItem key={w.id} value={String(w.id)}>
+                      工作区：{w.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setBoardOpen(false)}>
