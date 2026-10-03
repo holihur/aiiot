@@ -115,6 +115,7 @@ func NewRouter(h *Handlers) *gin.Engine {
 		auth.GET("/products/:id/devices/export", h.ExportDevices)
 		auth.POST("/products/:id/devices/import", h.ImportDevices)
 		auth.POST("/telemetry/compare", h.CompareTelemetry)
+		auth.POST("/demo/setup", h.SetupDemo)
 		auth.GET("/devices/:id/telemetry/export", h.ExportTelemetry)
 		auth.PUT("/devices/:id/status", h.SetDeviceStatus)
 		auth.POST("/devices/:id/secret", h.RotateDeviceSecret)

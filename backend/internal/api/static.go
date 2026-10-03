@@ -35,8 +35,14 @@ func RegisterStatic(r *gin.Engine, dir string) bool {
 		c.File(indexPath)
 	})
 
-	// Hashed build assets and other top-level files.
-	r.Static("/assets", filepath.Join(dir, "assets"))
+	// Hashed build assets and other top-level files. Content-addressed names
+	// are safe to cache forever; the explicit headers also stop heuristic
+	// caching that could pin a stale bundle after a deploy.
+	assets := r.Group("/assets", func(c *gin.Context) {
+		c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		c.Next()
+	})
+	assets.Static("/", filepath.Join(dir, "assets"))
 	r.StaticFile("/favicon.ico", filepath.Join(dir, "favicon.ico"))
 	r.StaticFile("/vite.svg", filepath.Join(dir, "vite.svg"))
 

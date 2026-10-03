@@ -205,6 +205,7 @@ func main() {
 		CORSAllowed:      cfg.CORSAllowedOrigins,
 		AppEnv:           cfg.AppEnv,
 	}
+	handlers.RestoreDemo(ctx)
 	router := api.NewRouter(handlers)
 	if api.RegisterStatic(router, cfg.WebDir) {
 		log.Info("serving frontend", "dir", cfg.WebDir)
