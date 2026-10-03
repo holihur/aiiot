@@ -11,6 +11,8 @@ const (
 	TriggerPeerMessage   = "peer_message"
 	// TriggerShadowDelta fires when a device shadow delta is produced.
 	TriggerShadowDelta = "shadow_delta"
+	// TriggerSchedule fires on a 5-field cron expression (field Cron).
+	TriggerSchedule = "schedule"
 
 	ActionWebhook       = "webhook"
 	ActionMQTTPublish   = "mqtt_publish"
@@ -40,6 +42,8 @@ type Rule struct {
 	Actions       JSONList `gorm:"type:jsonb" json:"actions"`
 	Priority      int      `gorm:"default:0" json:"priority"`
 
+	// Cron is the 5-field schedule expression for TriggerSchedule rules.
+	Cron           string     `gorm:"size:128" json:"cron"`
 	LastTriggeredAt *time.Time `json:"lastTriggeredAt"`
 	TriggerCount    int64      `gorm:"default:0" json:"triggerCount"`
 }

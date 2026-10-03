@@ -42,7 +42,7 @@ export interface Product {
   key: string;
   name: string;
   category?: string;
-  protocol: "mqtt" | "coap" | "custom";
+  protocol: "mqtt" | "coap" | "custom" | "modbus";
   dataFormat: string;
   description?: string;
   status: string;
@@ -170,6 +170,7 @@ export interface Rule {
   enabled: boolean;
   triggerType: string;
   triggerSource: string;
+  cron?: string;
   condition: string;
   actions: Record<string, unknown>[];
   priority: number;

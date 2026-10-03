@@ -28,6 +28,7 @@ import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/utils";
 
 const triggers = [
+  { value: "schedule", label: "Schedule (cron)" },
   { value: "telemetry", label: "Telemetry (property)" },
   { value: "event", label: "Event" },
   { value: "device_online", label: "Device online" },
@@ -70,6 +71,7 @@ interface Draft {
   description: string;
   triggerType: string;
   triggerSource: string;
+  cron: string;
   condition: string;
   priority: number;
   actions: ActionDraft[];
@@ -80,6 +82,7 @@ const emptyDraft: Draft = {
   description: "",
   triggerType: "telemetry",
   triggerSource: "*",
+  cron: "",
   condition: 'identifier == "temperature" && double(value) > 40.0',
   priority: 0,
   actions: [{ type: "log" }],
@@ -207,6 +210,7 @@ export default function RulesPage() {
       description: r.description ?? "",
       triggerType: r.triggerType,
       triggerSource: r.triggerSource,
+      cron: r.cron ?? "",
       condition: r.condition,
       priority: r.priority,
       actions: (r.actions ?? []).map(fromAction),
@@ -234,6 +238,7 @@ export default function RulesPage() {
         description: draft.description,
         triggerType: draft.triggerType,
         triggerSource: draft.triggerSource || "*",
+        cron: draft.cron,
         condition: draft.condition,
         actions,
         priority: draft.priority,
@@ -450,13 +455,26 @@ export default function RulesPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>{t("rules.triggerSource")}</Label>
-                  <Input
-                    value={draft.triggerSource}
-                    onChange={(e) => setDraft({ ...draft, triggerSource: e.target.value })}
-                  />
-                </div>
+                {draft.triggerType === "schedule" ? (
+                  <div className="space-y-2">
+                    <Label>
+                      Cron <span className="text-xs font-normal text-muted-foreground">(5 fields: min hour dom month dow)</span>
+                    </Label>
+                    <Input
+                      placeholder="*/5 * * * *"
+                      value={draft.cron}
+                      onChange={(e) => setDraft({ ...draft, cron: e.target.value })}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>{t("rules.triggerSource")}</Label>
+                    <Input
+                      value={draft.triggerSource}
+                      onChange={(e) => setDraft({ ...draft, triggerSource: e.target.value })}
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">

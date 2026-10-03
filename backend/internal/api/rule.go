@@ -19,6 +19,7 @@ type ruleRequest struct {
 	Condition     string          `json:"condition" binding:"required"`
 	Actions       models.JSONList `json:"actions"`
 	Priority      int             `json:"priority"`
+	Cron          string          `json:"cron"`
 }
 
 func (h *Handlers) ListRules(c *gin.Context) {
@@ -66,6 +67,7 @@ func (h *Handlers) CreateRule(c *gin.Context) {
 		Condition:     req.Condition,
 		Actions:       req.Actions,
 		Priority:      req.Priority,
+		Cron:          req.Cron,
 	}
 	if rule.TriggerSource == "" {
 		rule.TriggerSource = "*"
@@ -116,6 +118,7 @@ func (h *Handlers) UpdateRule(c *gin.Context) {
 	rule.ProductID = req.ProductID
 	rule.WorkspaceID = req.WorkspaceID
 	rule.TriggerType = req.TriggerType
+	rule.Cron = req.Cron
 	rule.TriggerSource = req.TriggerSource
 	if rule.TriggerSource == "" {
 		rule.TriggerSource = "*"

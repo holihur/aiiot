@@ -135,6 +135,71 @@ func (e *RuleEngine) Reload(ctx context.Context) error {
 	return nil
 }
 
+// lastScheduleMin guards against double-firing a schedule rule within the
+// same minute (the scheduler may tick more often than once per minute).
+var lastScheduleMin = struct {
+	sync.Mutex
+	ran map[uint]int64
+}{ran: map[uint]int64{}}
+
+// ScheduleTick fires schedule-triggered rules whose cron expression matches
+// now. Called periodically (e.g. every 30s) by the core; each rule runs at
+// most once per minute. Condition ("true" by default) is still evaluated, so
+// an expression like "now.weekday in [1,2,3]" works.
+func (e *RuleEngine) ScheduleTick(ctx context.Context, now time.Time) {
+	now = now.UTC()
+	minute := now.Unix() / 60
+	e.mu.RLock()
+	var hits []*compiledRule
+	for _, cr := range e.programs {
+		r := cr.rule
+		if r.TriggerType != models.TriggerSchedule || r.Cron == "" {
+			continue
+		}
+		if !CronMatches(r.Cron, now) {
+			continue
+		}
+		lastScheduleMin.Lock()
+		prev, seen := lastScheduleMin.ran[r.ID]
+		lastScheduleMin.Unlock()
+		if seen && prev == minute {
+			continue
+		}
+		hits = append(hits, cr)
+	}
+	e.mu.RUnlock()
+	for _, cr := range hits {
+		lastScheduleMin.Lock()
+		lastScheduleMin.ran[cr.rule.ID] = minute
+		lastScheduleMin.Unlock()
+
+		ev := &RuleEvent{
+			Kind:        access.KindProperty, // schedule rules still carry a kind for metrics
+			ProjectID:   cr.rule.ProjectID,
+			WorkspaceID: 0,
+			DeviceID:    0,
+			Now:         now,
+		}
+		if cr.rule.WorkspaceID != nil {
+			ev.WorkspaceID = *cr.rule.WorkspaceID
+		}
+		activation := e.activation(ev)
+		out, _, err := cr.prg.Eval(activation)
+		if err != nil {
+			e.log.Warn("schedule rule eval error", "rule", cr.rule.ID, "error", err)
+			continue
+		}
+		matched, _ := out.Value().(bool)
+		if !matched {
+			continue
+		}
+		metrics.ObserveRuleTrigger(cr.rule.Name)
+		results, actionErr := e.runActions(ctx, cr.rule, ev, activation)
+		e.record(ctx, cr.rule, ev, results, actionErr)
+		e.log.Info("schedule rule fired", "rule", cr.rule.Name, "cron", cr.rule.Cron)
+	}
+}
+
 // Evaluate runs all matching rules for an event.
 func (e *RuleEngine) Evaluate(ctx context.Context, ev *RuleEvent) {
 	if ev.Now.IsZero() {

@@ -218,7 +218,7 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	go backgroundJobs(ctx, db, cfg, ingest, registry, alerter, log)
+	go backgroundJobs(ctx, db, cfg, ingest, registry, alerter, rules, log)
 
 	go func() {
 		log.Info("core HTTP server listening", "addr", cfg.HTTPAddr)
@@ -255,7 +255,8 @@ func rateLimitedIngestLog(log *slog.Logger, deviceKey string, err error) {
 
 var ingestLogStamp sync.Map
 
-func backgroundJobs(ctx context.Context, db *gorm.DB, cfg *config.Config, ingest *service.IngestService, registry *gateway.Registry, alerter *service.Alerter, log *slog.Logger) {
+func backgroundJobs(ctx context.Context, db *gorm.DB, cfg *config.Config, ingest *service.IngestService, registry *gateway.Registry, alerter *service.Alerter, rules *service.RuleEngine, log *slog.Logger) {
+	scheduleTicker := time.NewTicker(30 * time.Second)
 	offlineTicker := time.NewTicker(time.Minute)
 	partitionTicker := time.NewTicker(6 * time.Hour)
 	retentionTicker := time.NewTicker(12 * time.Hour)
@@ -275,6 +276,8 @@ func backgroundJobs(ctx context.Context, db *gorm.DB, cfg *config.Config, ingest
 		select {
 		case <-ctx.Done():
 			return
+		case now := <-scheduleTicker.C:
+			rules.ScheduleTick(ctx, now)
 		case <-offlineTicker.C:
 			if err := database.Exclusive(ctx, db, database.LockKeyOfflineSweep, func() error {
 				ingest.SweepOffline(ctx)
