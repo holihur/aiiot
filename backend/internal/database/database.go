@@ -85,6 +85,11 @@ func Migrate(db *gorm.DB, tcfg config.TelemetryConfig) error {
 		return fmt.Errorf("automigrate: %w", err)
 	}
 
+	// Multi-board dashboards: give legacy single boards a sensible name.
+	if err := db.Exec(`UPDATE dashboard_boards SET name = '默认看板' WHERE name = '' OR name IS NULL OR name = 'Default'`).Error; err != nil {
+		return fmt.Errorf("backfill dashboard names: %w", err)
+	}
+
 	// Backfill legacy products (created before ownership was tracked) to the
 	// earliest admin account.
 	db.Exec("UPDATE products SET created_by = (SELECT min(id) FROM users) WHERE created_by = 0")
@@ -116,6 +121,8 @@ func preMigrate(db *gorm.DB) error {
 		// longer depends on them); drop the legacy global unique index.
 		`DROP INDEX IF EXISTS idx_workspace_key`,
 		`DROP INDEX IF EXISTS idx_workspaces_key`,
+		// Dashboards are multi-board now: drop the old per-project unique index.
+		`DROP INDEX IF EXISTS idx_dashboard_boards_project_id`,
 	}
 	for _, s := range stmts {
 		if err := db.Exec(s).Error; err != nil {

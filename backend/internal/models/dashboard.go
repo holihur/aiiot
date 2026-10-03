@@ -12,9 +12,13 @@ import "time"
 //	{"type":"text","title":"说明","config":{"text":"..."}}
 type DashboardBoard struct {
 	Base
-	ProjectID uint      `gorm:"uniqueIndex;not null" json:"projectId"`
-	Panels    JSONList  `gorm:"type:jsonb" json:"panels"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	// ProjectID scopes the board to a project; WorkspaceID (0 = project-wide)
+	// scopes it to a workspace. A project may own many boards.
+	ProjectID   uint      `gorm:"index;not null" json:"projectId"`
+	WorkspaceID uint      `gorm:"index;not null;default:0" json:"workspaceId"`
+	Name        string    `gorm:"size:120;not null;default:'Default'" json:"name"`
+	Panels      JSONList  `gorm:"type:jsonb" json:"panels"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 // TableName returns the dashboard table name.
