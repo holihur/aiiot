@@ -221,6 +221,64 @@ function AlertsPanel({ projectId }: { projectId: number }) {
   );
 }
 
+// MapPanel renders device coordinates (tags.lat / tags.lng) as a plain SVG
+// scatter plot — no map-tile dependency. Devices without coordinates are
+// listed beside the plot.
+function MapPanel({ devices }: { devices: Device[] }) {
+  const geo = devices.filter((d) => {
+    const t = d.tags as Record<string, unknown> | undefined;
+    return t && typeof t.lat === "number" && typeof t.lng === "number";
+  });
+  const W = 420, H = 240, PAD = 18;
+  const lats = geo.map((d) => (d.tags as Record<string, number>).lat);
+  const lngs = geo.map((d) => (d.tags as Record<string, number>).lng);
+  const minLat = Math.min(...lats, 0), maxLat = Math.max(...lats, 1);
+  const minLng = Math.min(...lngs, 0), maxLng = Math.max(...lngs, 1);
+  const x = (lng: number) => PAD + ((lng - minLng) / (maxLng - minLng || 1)) * (W - 2 * PAD);
+  const y = (lat: number) => PAD + ((maxLat - lat) / (maxLat - minLat || 1)) * (H - 2 * PAD);
+  const other = devices.filter((d) => !geo.includes(d));
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+        <span>{geo.length} located · {devices.length} total</span>
+      </div>
+      {geo.length > 0 ? (
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full rounded border bg-background">
+          {geo.map((d, i) => (
+            <g key={d.id}>
+              <circle
+                cx={x((d.tags as Record<string, number>).lng)}
+                cy={y((d.tags as Record<string, number>).lat)}
+                r={6}
+                className="fill-primary/80"
+              >
+                <title>{`${d.name} (${(d.tags as Record<string, number>).lat}, ${(d.tags as Record<string, number>).lng})`}</title>
+              </circle>
+            </g>
+          ))}
+          <text x={PAD} y={H - 4} fontSize={9} fill="currentColor" opacity={0.6}>
+            lat {minLat.toFixed(1)}–{maxLat.toFixed(1)} · lng {minLng.toFixed(1)}–{maxLng.toFixed(1)}
+          </text>
+        </svg>
+      ) : (
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          Set device tags lat/lng to plot positions
+        </p>
+      )}
+      {other.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {other.slice(0, 5).map((d) => (
+            <div key={d.id} className="flex items-center justify-between text-xs">
+              <span className="min-w-0 truncate">{d.name}</span>
+              <Badge variant={d.online ? "success" : "secondary"}>{d.online ? "online" : "offline"}</Badge>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DevicesPanel({ devices }: { devices: Device[] }) {
   const online = devices.filter((d) => d.online).length;
   return (
@@ -387,6 +445,7 @@ export default function DashboardPage() {
               >
                 {p.type === "stat" && <StatPanel panel={p} devices={devices.data ?? []} />}
                 {p.type === "trend" && <TrendPanel panel={p} devices={devices.data ?? []} />}
+                {p.type === "map" && <MapPanel devices={devices.data ?? []} />}
                 {p.type === "alerts" && <AlertsPanel projectId={projectId} />}
                 {p.type === "devices" && <DevicesPanel devices={devices.data ?? []} />}
                 {p.type === "text" && (
@@ -489,6 +548,7 @@ export default function DashboardPage() {
                   <SelectItem value="trend">trend</SelectItem>
                   <SelectItem value="alerts">alerts</SelectItem>
                   <SelectItem value="devices">devices</SelectItem>
+                  <SelectItem value="map">map</SelectItem>
                   <SelectItem value="text">text</SelectItem>
                 </SelectContent>
               </Select>

@@ -320,7 +320,7 @@ export interface Alert {
 }
 
 export interface DashboardPanel {
-  type: "stat" | "trend" | "alerts" | "devices" | "text";
+  type: "stat" | "trend" | "alerts" | "devices" | "map" | "text";
   title?: string;
   config?: Record<string, unknown>;
 }
@@ -748,6 +748,12 @@ export const adminApi = {
   me: () => adminRequest<AdminUser>("GET", "/auth/me"),
   changePassword: (oldPassword: string, newPassword: string) =>
     adminRequest<{ ok: boolean }>("POST", "/auth/password", { oldPassword, newPassword }),
+  totpStatus: () => adminRequest<{ enabled: boolean }>("GET", "/auth/totp/status"),
+  totpSetup: () =>
+    adminRequest<{ secret: string; otpauthUrl: string; period: number; enabled: boolean }>(
+      "POST", "/auth/totp/setup", {}),
+  totpEnable: (code: string) => adminRequest<{ enabled: boolean }>("POST", "/auth/totp/enable", { code }),
+  totpDisable: (code: string) => adminRequest<{ enabled: boolean }>("POST", "/auth/totp/disable", { code }),
   listGateways: () => adminRequest<GatewayInstance[]>("GET", "/gateways"),
   deregisterGateway: (instanceId: string) =>
     adminRequest<{ ok: boolean }>("DELETE", `/gateways/${encodeURIComponent(instanceId)}`),

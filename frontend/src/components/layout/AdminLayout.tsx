@@ -10,6 +10,7 @@ const items = [
   { to: "/admin/nats", label: "nats.title", icon: Send },
   { to: "/admin/storage", label: "storage.title", icon: Database },
   { to: "/admin/audit", label: "audit.title", icon: ScrollText },
+  { to: "/admin/security", label: "admin.security", icon: ShieldCheck },
 ];
 
 // AdminLayout is the shell for the administration console, deliberately

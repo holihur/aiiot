@@ -7,6 +7,7 @@ import { AdminLayout } from "./components/layout/AdminLayout";
 import LoginPage from "./pages/Login";
 import RegisterPage from "./pages/Register";
 import AdminLoginPage from "./pages/AdminLogin";
+import AdminSecurityPage from "./pages/AdminSecurity";
 import DashboardPage from "./pages/Dashboard";
 import ProjectsPage from "./pages/Projects";
 import ProjectDetailPage from "./pages/ProjectDetail";
@@ -91,6 +92,7 @@ export default function App() {
         <Route path="nats" element={<NatsPage />} />
         <Route path="storage" element={<StoragePage />} />
         <Route path="audit" element={<AuditPage />} />
+        <Route path="security" element={<AdminSecurityPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
