@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -328,10 +328,22 @@ export default function DashboardPage() {
     queryFn: () => api.listDevices(projectId),
     enabled: !!projectId,
   });
-  const board = useQuery({
-    queryKey: ["dashboard", projectId],
-    queryFn: () => api.getDashboard(projectId),
+  const boards = useQuery({
+    queryKey: ["dashboards", projectId],
+    queryFn: () => api.listDashboards(projectId),
     enabled: !!projectId,
+  });
+  const [boardId, setBoardId] = useState<number>(() =>
+    Number(localStorage.getItem(`aiiot_dashboard_${projectId}`) || 0),
+  );
+  const effectiveBoardId = boards.data?.length ? boardId || boards.data[0].id : 0;
+  useEffect(() => {
+    if (effectiveBoardId) localStorage.setItem(`aiiot_dashboard_${projectId}`, String(effectiveBoardId));
+  }, [projectId, effectiveBoardId]);
+  const board = useQuery({
+    queryKey: ["dashboard", effectiveBoardId],
+    queryFn: () => api.getDashboard(effectiveBoardId),
+    enabled: !!effectiveBoardId,
   });
   const { events, connected } = useEventStream(projectId || undefined);
 
@@ -341,11 +353,35 @@ export default function DashboardPage() {
   const [draft, setDraft] = useState<DashboardPanel>({ type: "stat", title: "", config: {} });
 
   const save = useMutation({
-    mutationFn: () => api.putDashboard(projectId, panels),
+    mutationFn: () => api.putDashboard(effectiveBoardId, { panels }),
     onSuccess: () => {
       toast.success("Dashboard saved");
       setEditing(false);
-      void qc.invalidateQueries({ queryKey: ["dashboard", projectId] });
+      void qc.invalidateQueries({ queryKey: ["dashboard", effectiveBoardId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const [boardOpen, setBoardOpen] = useState(false);
+  const [boardName, setBoardName] = useState("");
+  const createBoard = useMutation({
+    mutationFn: () => api.createDashboard(projectId || 0, boardName.trim() || "看板"),
+    onSuccess: (b) => {
+      toast.success("Dashboard created");
+      setBoardOpen(false);
+      setBoardName("");
+      setBoardId(b.id);
+      void qc.invalidateQueries({ queryKey: ["dashboards", projectId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const removeBoard = useMutation({
+    mutationFn: () => api.deleteDashboard(effectiveBoardId),
+    onSuccess: () => {
+      toast.success("Dashboard deleted");
+      setBoardId(0);
+      void qc.invalidateQueries({ queryKey: ["dashboards", projectId] });
+      void qc.invalidateQueries({ queryKey: ["dashboard", effectiveBoardId] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -392,6 +428,39 @@ export default function DashboardPage() {
           <p className="text-sm text-muted-foreground">{t("dash.subtitle")}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {(boards.data?.length ?? 0) > 0 && !editing && (
+            <div className="flex items-center gap-1">
+              <Select value={String(effectiveBoardId)} onValueChange={(v) => setBoardId(Number(v))}>
+                <SelectTrigger className="w-44">
+                  <SelectValue placeholder="select dashboard" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(boards.data ?? []).map((b) => (
+                    <SelectItem key={b.id} value={String(b.id)}>
+                      {b.name || `#${b.id}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {canWrite && (
+                <>
+                  <Button size="sm" variant="ghost" onClick={() => setBoardOpen(true)} title="New dashboard">
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    title="Delete dashboard"
+                    onClick={() => {
+                      if (editing || window.confirm("Delete this dashboard?")) removeBoard.mutate();
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
           <Badge variant={connected ? "success" : "secondary"}>
             <Radio className="mr-1 h-3 w-3" /> {connected ? t("dash.live") : t("dash.offline")}
           </Badge>
@@ -525,6 +594,36 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={boardOpen} onOpenChange={setBoardOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New dashboard</DialogTitle>
+            <DialogDescription>Create another dashboard for this project (project-scoped).</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input
+                value={boardName}
+                onChange={(e) => setBoardName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && boardName.trim()) createBoard.mutate();
+                }}
+                placeholder="e.g. 产线大屏"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setBoardOpen(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button onClick={() => createBoard.mutate()} disabled={createBoard.isPending || !boardName.trim()}>
+                {t("common.save")}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>

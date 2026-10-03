@@ -326,6 +326,14 @@ export interface DashboardPanel {
   config?: Record<string, unknown>;
 }
 
+export interface DashboardBoard {
+  id: number;
+  projectId: number;
+  workspaceId: number;
+  name: string;
+  panels: DashboardPanel[];
+}
+
 export interface DeviceGroup {
   id: number;
   projectId: number;
@@ -692,9 +700,14 @@ export const api = {
       `/projects/${projectId}/alerts${q ? `?${q}` : ""}`,
     );
   },
-  getDashboard: (projectId: number) => get<{ panels: DashboardPanel[] }>(`/projects/${projectId}/dashboard`),
-  putDashboard: (projectId: number, panels: DashboardPanel[]) =>
-    put<{ ok: boolean; panels: number }>(`/projects/${projectId}/dashboard`, { panels }),
+  // project/workspace multi-dashboards (no user-level boards)
+  listDashboards: (projectId: number) => get<DashboardBoard[]>(`/projects/${projectId}/dashboards`),
+  getDashboard: (id: number) => get<DashboardBoard>(`/dashboards/${id}`),
+  putDashboard: (id: number, body: { panels: DashboardPanel[]; name?: string }) =>
+    put<{ ok: boolean; panels: number; name: string }>(`/dashboards/${id}`, body),
+  createDashboard: (projectId: number, name: string, workspaceId = 0) =>
+    post<DashboardBoard>(`/projects/${projectId}/dashboards`, { name, workspaceId }),
+  deleteDashboard: (id: number) => del<{ ok: boolean }>(`/dashboards/${id}`),
   ackAlert: (id: number) => post<{ ok: boolean }>(`/alerts/${id}/ack`),
   resolveAlert: (id: number, reason?: string) =>
     post<{ ok: boolean }>(`/alerts/${id}/resolve${reason ? `?reason=${encodeURIComponent(reason)}` : ""}`),
