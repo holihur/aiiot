@@ -51,7 +51,7 @@ func (h *Handlers) Register(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "create user failed")
 		return
 	}
-	token, exp, err := h.Tokens.Issue(user.ID, user.Username, user.SystemRole)
+	token, exp, err := h.Tokens.Issue(user.ID, user.Username, user.SystemRole, user.TokenVersion)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "issue token failed")
 		return
@@ -83,12 +83,34 @@ func (h *Handlers) Login(c *gin.Context) {
 		fail(c, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
-	token, exp, err := h.Tokens.Issue(user.ID, user.Username, user.SystemRole)
+	token, exp, err := h.Tokens.Issue(user.ID, user.Username, user.SystemRole, user.TokenVersion)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "issue token failed")
 		return
 	}
 	ok(c, gin.H{"token": token, "expiresAt": exp, "user": user})
+}
+
+// RevokeSessions bumps the user's token version, invalidating every
+// outstanding token, and returns a fresh token so the current session stays
+// signed in. Used for "sign out everywhere".
+func (h *Handlers) RevokeSessions(c *gin.Context) {
+	var user models.User
+	if err := h.DB.First(&user, middleware.UserID(c)).Error; err != nil {
+		fail(c, http.StatusNotFound, "user not found")
+		return
+	}
+	next := user.TokenVersion + 1
+	if err := h.DB.Model(&user).Update("token_version", next).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "revoke failed")
+		return
+	}
+	token, exp, err := h.Tokens.Issue(user.ID, user.Username, user.SystemRole, next)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "issue token failed")
+		return
+	}
+	ok(c, gin.H{"ok": true, "token": token, "expiresAt": exp})
 }
 
 func (h *Handlers) Me(c *gin.Context) {
@@ -125,6 +147,17 @@ func (h *Handlers) ChangePassword(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "hash failed")
 		return
 	}
-	h.DB.Model(&user).Update("password_hash", hash)
-	ok(c, gin.H{"ok": true})
+	// Changing the password revokes every outstanding token; return a fresh
+	// one so the current session is not logged out.
+	next := user.TokenVersion + 1
+	if err := h.DB.Model(&user).Updates(map[string]any{"password_hash": hash, "token_version": next}).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "update failed")
+		return
+	}
+	token, exp, err := h.Tokens.Issue(user.ID, user.Username, user.SystemRole, next)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "issue token failed")
+		return
+	}
+	ok(c, gin.H{"ok": true, "token": token, "expiresAt": exp})
 }

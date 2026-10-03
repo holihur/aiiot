@@ -40,13 +40,15 @@ function CopyRow({ label, value, mono = true }: { label: string; value: string; 
 
 // --- quick-start code templates -------------------------------------------
 
-function httpCurl(c: DeviceConnection): string {
-  return `# 1) 设备上线
+type Translator = (key: string, vars?: Record<string, string | number>) => string;
+
+function httpCurl(c: DeviceConnection, t: Translator): string {
+  return `# ${t("connect.code.lifecycle")}
 curl -X POST http://${c.host}/api/v1/ingest/${c.productKey}/${c.deviceKey} \\
   -H "X-Device-Secret: ${c.password}" -H 'Content-Type: application/json' \\
   -d '{"kind":"lifecycle","state":"online"}'
 
-# 2) 上报属性（修改 identifier / params）
+# ${t("connect.code.reportProps")}
 curl -X POST http://${c.host}/api/v1/ingest/${c.productKey}/${c.deviceKey} \\
   -H "X-Device-Secret: ${c.password}" -H 'Content-Type: application/json' \\
   -d '{"kind":"property","identifier":"temperature","params":{"value":25.4}}'`;
@@ -71,13 +73,13 @@ for i in range(60):
     time.sleep(10)`;
 }
 
-function mqttPython(c: DeviceConnection): string {
+function mqttPython(c: DeviceConnection, t: Translator): string {
   const mqtt = c.mqtt!;
   return `import json, time
 import paho.mqtt.client as mqtt
 
 HOST, PORT = "${c.host}", ${mqtt.tcpPort}
-USER, PASS = "${c.username}", "${c.password}"   # {productKey}/{deviceKey} + 设备密钥
+USER, PASS = "${c.username}", "${c.password}"   # ${t("connect.code.credentialsComment")}
 
 def on_connect(client, userdata, flags, rc, props=None):
     print("connected:", rc)
@@ -119,12 +121,12 @@ for i in range(60):
     time.sleep(10)`;
 }
 
-function codeFor(c: DeviceConnection, lang: string): string {
+function codeFor(c: DeviceConnection, lang: string, t: Translator): string {
   switch (lang) {
     case "curl":
-      return httpCurl(c);
+      return httpCurl(c, t);
     case "mqtt":
-      return mqttPython(c);
+      return mqttPython(c, t);
     case "custom":
       return customPython(c);
     default:
@@ -365,7 +367,7 @@ export function ConnectDialog({
                   </SelectContent>
                 </Select>
               </div>
-              <CodeBlock code={codeFor(c, lang)} />
+              <CodeBlock code={codeFor(c, lang, t)} />
             </TabsContent>
 
             <TabsContent value="simulator">

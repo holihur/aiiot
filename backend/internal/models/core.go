@@ -24,6 +24,9 @@ type User struct {
 	PasswordHash string `gorm:"size:255;not null" json:"-"`
 	SystemRole   string `gorm:"size:32;not null;default:user" json:"systemRole"`
 	Status       string `gorm:"size:32;not null;default:active" json:"status"`
+	// TokenVersion is embedded in issued JWTs; bumping it revokes all
+	// outstanding tokens for the user (password change / sign out everywhere).
+	TokenVersion int `gorm:"not null;default:0" json:"-"`
 }
 
 func (User) TableName() string { return "users" }

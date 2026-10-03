@@ -189,3 +189,30 @@ func (h *Handlers) loadRule(c *gin.Context, id uint, min string) (*models.Rule, 
 	}
 	return &r, true
 }
+
+// pagingParams returns the requested page and page size. page==0 means the
+// caller does not want pagination (legacy behaviour).
+func pagingParams(c *gin.Context) (page, pageSize int) {
+	page = int(queryUint(c, "page"))
+	pageSize = int(queryUint(c, "pageSize"))
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 50
+	}
+	return page, pageSize
+}
+
+// applyPaging limits/offsets q according to the request. When no page is
+// requested it falls back to defLimit (bounded), preserving the old
+// large-limit behaviour for callers that do not paginate.
+func applyPaging(c *gin.Context, q *gorm.DB, defLimit int) *gorm.DB {
+	page, pageSize := pagingParams(c)
+	if page > 0 {
+		return q.Offset((page - 1) * pageSize).Limit(pageSize)
+	}
+	return q.Limit(defLimit)
+}
+
+// setTotalHeader writes the unpaginated row count for the client.
+func setTotalHeader(c *gin.Context, total int64) {
+	c.Header("X-Total-Count", strconv.FormatInt(total, 10))
+}

@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Database, LogOut, Network, ScrollText, Send, ShieldCheck } from "lucide-react";
 import { setAdminToken } from "@/lib/api";
 import { useI18n } from "@/lib/i18n";
+import { ThemeToggle } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -43,6 +44,9 @@ export function AdminLayout() {
           ))}
         </nav>
         <div className="border-t p-3">
+          <div className="mb-2 flex justify-end">
+            <ThemeToggle />
+          </div>
           <Button
             variant="outline"
             size="sm"

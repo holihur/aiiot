@@ -22,6 +22,9 @@ type Claims struct {
 	Username   string `json:"username"`
 	SystemRole string `json:"role"`
 	Kind       string `json:"kind"`
+	// TokenVersion invalidates tokens when it no longer matches the user's
+	// current version (password change / revoke-all).
+	TokenVersion int `json:"tv"`
 	jwt.RegisteredClaims
 }
 
@@ -35,22 +38,23 @@ func NewTokenService(secret string, ttl time.Duration) *TokenService {
 	return &TokenService{secret: []byte(secret), ttl: ttl}
 }
 
-func (s *TokenService) Issue(userID uint, username, role string) (string, time.Time, error) {
-	return s.issue(userID, username, role, TokenKindUser)
+func (s *TokenService) Issue(userID uint, username, role string, version int) (string, time.Time, error) {
+	return s.issue(userID, username, role, TokenKindUser, version)
 }
 
 // IssueAdmin mints a token for the administration audience.
-func (s *TokenService) IssueAdmin(userID uint, username string) (string, time.Time, error) {
-	return s.issue(userID, username, "admin", TokenKindAdmin)
+func (s *TokenService) IssueAdmin(userID uint, username string, version int) (string, time.Time, error) {
+	return s.issue(userID, username, "admin", TokenKindAdmin, version)
 }
 
-func (s *TokenService) issue(userID uint, username, role, kind string) (string, time.Time, error) {
+func (s *TokenService) issue(userID uint, username, role, kind string, version int) (string, time.Time, error) {
 	exp := time.Now().Add(s.ttl)
 	claims := Claims{
-		UserID:     userID,
-		Username:   username,
-		SystemRole: role,
-		Kind:       kind,
+		UserID:       userID,
+		Username:     username,
+		SystemRole:   role,
+		Kind:         kind,
+		TokenVersion: version,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			ExpiresAt: jwt.NewNumericDate(exp),

@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ListSkeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -161,7 +162,8 @@ export default function GroupsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {(groups.data ?? []).length === 0 && <p className="text-sm text-muted-foreground">{t("groups.empty")}</p>}
+            {groups.isLoading && <ListSkeleton rows={4} />}
+            {!groups.isLoading && (groups.data ?? []).length === 0 && <p className="text-sm text-muted-foreground">{t("groups.empty")}</p>}
             {(groups.data ?? []).map((g) => (
               <button
                 key={g.id}

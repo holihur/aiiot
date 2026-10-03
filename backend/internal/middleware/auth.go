@@ -16,7 +16,7 @@ const (
 )
 
 // Auth validates the bearer token and stores user info in the context.
-func Auth(tokens *auth.TokenService) gin.HandlerFunc {
+func Auth(tokens *auth.TokenService, versions *TokenVersionCache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		token := ""
@@ -37,6 +37,10 @@ func Auth(tokens *auth.TokenService) gin.HandlerFunc {
 		// Admin tokens are a separate audience and cannot access business APIs.
 		if claims.Kind == auth.TokenKindAdmin {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "admin token not allowed here"})
+			return
+		}
+		if !versions.OK(claims.Kind, claims.UserID, claims.TokenVersion) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token revoked"})
 			return
 		}
 		c.Set(CtxUserID, claims.UserID)
@@ -75,7 +79,7 @@ func Username(c *gin.Context) string {
 
 // AdminAuth authenticates the administration audience only. Business user
 // tokens are rejected here just as admin tokens are rejected by Auth.
-func AdminAuth(tokens *auth.TokenService) gin.HandlerFunc {
+func AdminAuth(tokens *auth.TokenService, versions *TokenVersionCache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		token := ""
@@ -91,6 +95,10 @@ func AdminAuth(tokens *auth.TokenService) gin.HandlerFunc {
 		claims, err := tokens.Parse(token)
 		if err != nil || claims.Kind != auth.TokenKindAdmin {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid admin token"})
+			return
+		}
+		if !versions.OK(claims.Kind, claims.UserID, claims.TokenVersion) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token revoked"})
 			return
 		}
 		c.Set(CtxUserID, claims.UserID)

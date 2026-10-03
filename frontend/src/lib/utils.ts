@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { getLang, translate } from "@/lib/i18n";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -9,7 +10,7 @@ export function formatTime(value?: string | null) {
   if (!value) return "-";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleString();
+  return d.toLocaleString(getLang() === "zh" ? "zh-CN" : "en-US");
 }
 
 export function formatNumber(value: number | null | undefined, digits = 2) {
@@ -22,10 +23,11 @@ export function sinceText(value?: string | null): string {
   const t = new Date(value).getTime();
   if (Number.isNaN(t)) return "-";
   const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+  const lang = getLang();
+  if (s < 60) return translate(lang, "time.secondsAgo", { n: s });
+  if (s < 3600) return translate(lang, "time.minutesAgo", { n: Math.floor(s / 60) });
+  if (s < 86400) return translate(lang, "time.hoursAgo", { n: Math.floor(s / 3600) });
+  return translate(lang, "time.daysAgo", { n: Math.floor(s / 86400) });
 }
 
 export function formatBytes(value: number) {

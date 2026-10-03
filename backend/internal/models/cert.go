@@ -7,11 +7,11 @@ import "time"
 // the issuing moment.
 type DeviceCert struct {
 	Base
-	DeviceID uint       `gorm:"index;not null" json:"deviceId"`
-	Serial   string     `gorm:"size:64;uniqueIndex;not null" json:"serial"`
-	CN       string     `gorm:"size:64;not null" json:"cn"`
-	NotAfter time.Time  `json:"notAfter"`
-	Revoked  bool       `gorm:"default:false" json:"revoked"`
+	DeviceID  uint       `gorm:"index;not null" json:"deviceId"`
+	Serial    string     `gorm:"size:64;uniqueIndex;not null" json:"serial"`
+	CN        string     `gorm:"size:64;not null" json:"cn"`
+	NotAfter  time.Time  `json:"notAfter"`
+	Revoked   bool       `gorm:"default:false" json:"revoked"`
 	RevokedAt *time.Time `json:"revokedAt,omitempty"`
 }
 

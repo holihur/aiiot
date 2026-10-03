@@ -2,6 +2,7 @@ import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "./lib/auth";
+import { useI18n } from "./lib/i18n";
 import { getAdminToken } from "./lib/api";
 import { AppLayout } from "./components/layout/AppLayout";
 import { AdminLayout } from "./components/layout/AdminLayout";
@@ -107,9 +108,11 @@ export default function App() {
 // PageLoader is a lightweight full-screen loading state shown while a
 // route chunk is being fetched.
 function PageLoader() {
+  const { t } = useI18n();
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background">
       <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
     </div>
   );
 }

@@ -87,7 +87,7 @@ func (h *Handlers) AdminLogin(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, totpRequiredResponse(ce.kind))
 		return
 	}
-	token, exp, err := h.Tokens.IssueAdmin(admin.ID, admin.Username)
+	token, exp, err := h.Tokens.IssueAdmin(admin.ID, admin.Username, admin.TokenVersion)
 	if err != nil {
 		fail(c, http.StatusInternalServerError, "issue token failed")
 		return
@@ -131,8 +131,17 @@ func (h *Handlers) AdminChangePassword(c *gin.Context) {
 		fail(c, http.StatusInternalServerError, "hash failed")
 		return
 	}
-	h.DB.Model(&admin).Update("password_hash", hash)
-	ok(c, gin.H{"ok": true})
+	next := admin.TokenVersion + 1
+	if err := h.DB.Model(&admin).Updates(map[string]any{"password_hash": hash, "token_version": next}).Error; err != nil {
+		fail(c, http.StatusInternalServerError, "update failed")
+		return
+	}
+	token, exp, err := h.Tokens.IssueAdmin(admin.ID, admin.Username, next)
+	if err != nil {
+		fail(c, http.StatusInternalServerError, "issue token failed")
+		return
+	}
+	ok(c, gin.H{"ok": true, "token": token, "expiresAt": exp})
 }
 
 // AdminNATSStats returns the JetStream uplink stream/consumer state plus the

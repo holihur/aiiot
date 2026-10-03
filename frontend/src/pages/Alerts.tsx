@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableSkeletonRows } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -35,11 +36,15 @@ export default function AlertsPage() {
   const { t } = useI18n();
   const { canWrite, canAdmin } = useProjectRole(projectId);
   const [alertStatus, setAlertStatus] = useState<string>("all");
+  const [page, setPage] = useState(1);
   const alerts = useQuery({
-    queryKey: ["alerts", projectId, alertStatus],
-    queryFn: () => api.listAlerts(projectId, { status: alertStatus === "all" ? undefined : alertStatus }),
+    queryKey: ["alerts", projectId, alertStatus, page],
+    queryFn: () =>
+      api.listAlerts(projectId, { status: alertStatus === "all" ? undefined : alertStatus, page, pageSize: 50 }),
     refetchInterval: 5000,
   });
+  const alertTotal = alerts.data?.total ?? 0;
+  const alertTotalPages = Math.max(1, Math.ceil(alertTotal / 50));
   const ackAlert = useMutation({
     mutationFn: (id: number) => api.ackAlert(id),
     onSuccess: () => {
@@ -186,7 +191,7 @@ export default function AlertsPage() {
             {alerts.data?.counts?.resolved != null && (
               <Badge variant="secondary">{t("alerts.resolved")}: {alerts.data.counts.resolved}</Badge>
             )}
-            <Select value={alertStatus} onValueChange={setAlertStatus}>
+            <Select value={alertStatus} onValueChange={(v) => { setAlertStatus(v); setPage(1); }}>
               <SelectTrigger className="ml-auto w-36">
                 <SelectValue />
               </SelectTrigger>
@@ -215,7 +220,8 @@ export default function AlertsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(alerts.data?.items ?? []).length === 0 && (
+                  {alerts.isLoading && <TableSkeletonRows cols={8} />}
+                  {!alerts.isLoading && (alerts.data?.items ?? []).length === 0 && (
                     <TableRow>
                       <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
                         {t("alerts.noAlerts")}
@@ -269,6 +275,20 @@ export default function AlertsPage() {
                   ))}
                 </TableBody>
               </Table>
+              {alertTotalPages > 1 && (
+                <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+                  <span>{t("common.totalCount", { count: alertTotal })}</span>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                      {t("common.prev")}
+                    </Button>
+                    <span>{t("common.pageOf", { page, pages: alertTotalPages })}</span>
+                    <Button variant="outline" size="sm" disabled={page >= alertTotalPages} onClick={() => setPage((p) => p + 1)}>
+                      {t("common.next")}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -292,13 +312,7 @@ export default function AlertsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading && (
-                <TableRow>
-                  <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                    {t("common.loading")}
-                  </TableCell>
-                </TableRow>
-              )}
+              {isLoading && <TableSkeletonRows cols={5} />}
               {(channels ?? []).length === 0 && !isLoading && (
                 <TableRow>
                   <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">

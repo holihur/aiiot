@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableSkeletonRows } from "@/components/ui/skeleton";
 import { formatTime } from "@/lib/utils";
 
 const protocolVariant: Record<string, "success" | "warning" | "secondary"> = {
@@ -63,7 +64,8 @@ export default function GatewaysPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(gateways.data ?? []).length === 0 && (
+              {gateways.isLoading && <TableSkeletonRows cols={8} />}
+              {!gateways.isLoading && (gateways.data ?? []).length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
                     {t("gateways.empty")}

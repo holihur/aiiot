@@ -43,7 +43,7 @@ type Rule struct {
 	Priority      int      `gorm:"default:0" json:"priority"`
 
 	// Cron is the 5-field schedule expression for TriggerSchedule rules.
-	Cron           string     `gorm:"size:128" json:"cron"`
+	Cron            string     `gorm:"size:128" json:"cron"`
 	LastTriggeredAt *time.Time `json:"lastTriggeredAt"`
 	TriggerCount    int64      `gorm:"default:0" json:"triggerCount"`
 }

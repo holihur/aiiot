@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ListSkeleton, TableSkeletonRows } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -204,13 +205,7 @@ export default function OtaPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading && (
-                <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                    {t("common.loading")}
-                  </TableCell>
-                </TableRow>
-              )}
+              {isLoading && <TableSkeletonRows cols={7} />}
               {(tasks ?? []).length === 0 && !isLoading && (
                 <TableRow>
                   <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
@@ -256,7 +251,7 @@ export default function OtaPage() {
 
           {/* Mobile cards */}
           <div className="space-y-2 md:hidden">
-            {isLoading && <p className="py-6 text-center text-sm text-muted-foreground">{t("common.loading")}</p>}
+            {isLoading && <ListSkeleton rows={4} />}
             {(tasks ?? []).length === 0 && !isLoading && (
               <p className="py-8 text-center text-sm text-muted-foreground">{t("ota.empty")}</p>
             )}

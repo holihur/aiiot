@@ -8,6 +8,7 @@ import (
 	"github.com/aiiot/server/internal/middleware"
 	"github.com/aiiot/server/internal/models"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // alertSummary joins an alert with its rule name.
@@ -25,23 +26,34 @@ func (h *Handlers) ListAlerts(c *gin.Context) {
 	if !h.requireProject(c, projectID, models.ProjectRoleViewer) {
 		return
 	}
-	limit := parseLimit(c.Query("limit"), 100, 500)
-	q := h.DB.WithContext(c).
-		Table("alerts a").
-		Select("a.*, r.name AS rule_name").
-		Joins("LEFT JOIN rules r ON r.id = a.rule_id").
-		Where("a.project_id = ?", projectID)
-	if st := c.Query("status"); st != "" {
-		q = q.Where("a.status = ?", st)
-	}
-	if did := c.Query("deviceId"); did != "" {
-		if id, err := strconv.ParseUint(did, 10, 32); err == nil {
-			q = q.Where("a.device_id = ?", id)
+	filter := func() *gorm.DB {
+		q := h.DB.WithContext(c).
+			Table("alerts a").
+			Joins("LEFT JOIN rules r ON r.id = a.rule_id").
+			Where("a.project_id = ?", projectID)
+		if st := c.Query("status"); st != "" {
+			q = q.Where("a.status = ?", st)
 		}
+		if did := c.Query("deviceId"); did != "" {
+			if id, err := strconv.ParseUint(did, 10, 32); err == nil {
+				q = q.Where("a.device_id = ?", id)
+			}
+		}
+		return q
 	}
+	var total int64
+	filter().Count(&total)
+	setTotalHeader(c, total)
 	var rows []alertSummary
-	if err := q.Order("CASE WHEN a.status = 'firing' THEN 0 WHEN a.status = 'acknowledged' THEN 1 ELSE 2 END, a.updated_at DESC").
-		Limit(limit).Scan(&rows).Error; err != nil {
+	q := filter().Select("a.*, r.name AS rule_name").
+		Order("CASE WHEN a.status = 'firing' THEN 0 WHEN a.status = 'acknowledged' THEN 1 ELSE 2 END, a.updated_at DESC")
+	// Legacy callers pass ?limit= without ?page=; honour it, otherwise page.
+	if queryUint(c, "page") == 0 {
+		q = q.Limit(parseLimit(c.Query("limit"), 100, 500))
+	} else {
+		q = applyPaging(c, q, 100)
+	}
+	if err := q.Scan(&rows).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -58,7 +70,7 @@ func (h *Handlers) ListAlerts(c *gin.Context) {
 	for _, cc := range counts {
 		countMap[cc.Status] = cc.N
 	}
-	ok(c, gin.H{"items": rows, "counts": countMap})
+	ok(c, gin.H{"items": rows, "counts": countMap, "total": total})
 }
 
 // loadAlert loads an alert the current user may access (project member of the

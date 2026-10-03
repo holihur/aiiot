@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
 export type Lang = "en" | "zh";
 
@@ -513,6 +513,68 @@ const en: Record<string, string> = {
   "product.addElement": "Add",
   "product.title": "Product",
   "project.title": "Project",
+
+  "error.title": "Something went wrong",
+  "error.description": "An unexpected error occurred while rendering this page. Your data is safe — retry or return home.",
+  "error.retry": "Retry",
+  "error.home": "Back to home",
+
+  "time.secondsAgo": "{{n}}s ago",
+  "time.minutesAgo": "{{n}}m ago",
+  "time.hoursAgo": "{{n}}h ago",
+  "time.daysAgo": "{{n}}d ago",
+
+  "search.placeholder": "Search devices / products…",
+  "search.inputPlaceholder": "Device name / key, product, project…",
+  "search.device": "Device",
+  "search.product": "Product",
+  "search.project": "Project",
+  "search.rule": "Rule",
+  "search.group": "Group",
+  "search.noResults": "No results",
+  "search.hint": "Keep typing to search devices (current project), products and projects",
+
+  "connect.code.lifecycle": "# 1) bring the device online",
+  "connect.code.reportProps": "# 2) report a property (edit identifier / params)",
+  "connect.code.credentialsComment": "{productKey}/{deviceKey} + device secret",
+
+  "dash.defaultBoardName": "Board",
+  "dash.projectLevel": "Project-level",
+  "dash.boardNamePlaceholder": "e.g. Production line wall",
+  "dash.workspaceLabel": "Workspace: {{name}}",
+  "device.gisLocation": "GIS location",
+  "device.saveLocation": "Save location point",
+  "product.deleteFirmware": "Delete firmware",
+  "product.deleteFirmwareConfirm": "Delete firmware {{version}}?",
+
+  "secret.title": "Save this secret now",
+  "secret.desc": "This value is shown only once. Copy or download it before closing.",
+  "secret.warning": "Store it in a secure place — you will not be able to see it again.",
+  "secret.copy": "Copy",
+  "secret.copied": "Copied",
+  "secret.download": "Download",
+  "secret.close": "Done",
+  "secret.passwordLabel": "Password",
+  "device.created": "Device created",
+  "device.credentialsHint": "Connection credentials: username {productKey}/{deviceKey}, password is the device secret.",
+
+  "common.prev": "Prev",
+  "common.next": "Next",
+  "common.pageOf": "Page {{page}} / {{pages}}",
+  "common.totalCount": "{{count}} total",
+  "device.exportCsv": "Export CSV",
+  "device.exported": "Export downloaded",
+
+  "account.security": "Account security",
+  "account.securityDesc": "Change your password or sign out of every device.",
+  "account.oldPassword": "Current password",
+  "account.newPassword": "New password",
+  "account.changePassword": "Change password",
+  "account.passwordChanged": "Password changed",
+  "account.revoke": "Sign out everywhere",
+  "account.revokeDesc": "Revoke all other sessions. This device stays signed in.",
+  "account.revokeConfirm": "All other devices will be signed out immediately.",
+  "account.revoked": "All other sessions revoked",
 };
 
 const zh: Record<string, string> = {
@@ -1026,9 +1088,88 @@ const zh: Record<string, string> = {
   "product.addElement": "添加",
   "product.title": "产品",
   "project.title": "项目",
+
+  "error.title": "页面出错了",
+  "error.description": "页面渲染时发生意外错误，你的数据是安全的——可以重试或返回首页。",
+  "error.retry": "重试",
+  "error.home": "返回首页",
+
+  "time.secondsAgo": "{{n}}秒前",
+  "time.minutesAgo": "{{n}}分钟前",
+  "time.hoursAgo": "{{n}}小时前",
+  "time.daysAgo": "{{n}}天前",
+
+  "search.placeholder": "搜索设备 / 产品…",
+  "search.inputPlaceholder": "设备名称 / key、产品、项目…",
+  "search.device": "设备",
+  "search.product": "产品",
+  "search.project": "项目",
+  "search.rule": "规则",
+  "search.group": "分组",
+  "search.noResults": "无结果",
+  "search.hint": "继续输入以搜索设备（当前项目）、产品、项目",
+
+  "connect.code.lifecycle": "# 1) 设备上线",
+  "connect.code.reportProps": "# 2) 上报属性（修改 identifier / params）",
+  "connect.code.credentialsComment": "{productKey}/{deviceKey} + 设备密钥",
+
+  "dash.defaultBoardName": "看板",
+  "dash.projectLevel": "项目级",
+  "dash.boardNamePlaceholder": "例如：产线大屏",
+  "dash.workspaceLabel": "工作区：{{name}}",
+  "device.gisLocation": "位置 GIS",
+  "device.saveLocation": "保存位置点",
+  "product.deleteFirmware": "删除固件",
+  "product.deleteFirmwareConfirm": "删除固件 {{version}}？",
+
+  "secret.title": "请立即保存密钥",
+  "secret.desc": "该值仅显示一次，关闭前请复制或下载。",
+  "secret.warning": "请妥善保存——之后将无法再次查看。",
+  "secret.copy": "复制",
+  "secret.copied": "已复制",
+  "secret.download": "下载",
+  "secret.close": "完成",
+  "secret.passwordLabel": "密码",
+  "device.created": "设备已创建",
+  "device.credentialsHint": "连接凭据：用户名 {productKey}/{deviceKey}，密码为设备密钥。",
+
+  "common.prev": "上一页",
+  "common.next": "下一页",
+  "common.pageOf": "第 {{page}} / {{pages}} 页",
+  "common.totalCount": "共 {{count}} 条",
+  "device.exportCsv": "导出 CSV",
+  "device.exported": "导出已下载",
+
+  "account.security": "账号安全",
+  "account.securityDesc": "修改密码，或退出所有设备。",
+  "account.oldPassword": "当前密码",
+  "account.newPassword": "新密码",
+  "account.changePassword": "修改密码",
+  "account.passwordChanged": "密码已修改",
+  "account.revoke": "退出所有设备",
+  "account.revokeDesc": "吊销其他所有会话，本设备保持登录。",
+  "account.revokeConfirm": "其他所有设备将立即退出登录。",
+  "account.revoked": "其他会话已全部吊销",
 };
 
 const dicts: Record<Lang, Record<string, string>> = { en, zh };
+
+// getLang returns the persisted UI language outside of React (e.g. from
+// formatters in lib/utils.ts). It mirrors I18nProvider's initial state.
+export function getLang(): Lang {
+  return (localStorage.getItem("aiiot_lang") as Lang) || "en";
+}
+
+// translate is the hook-free counterpart of t, usable from plain helpers.
+export function translate(lang: Lang, key: string, vars?: Record<string, string | number>): string {
+  let s = dicts[lang]?.[key] ?? dicts.en[key] ?? key;
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) {
+      s = s.replace(new RegExp(`{{${k}}}`, "g"), String(v));
+    }
+  }
+  return s;
+}
 
 interface I18nValue {
   lang: Lang;
@@ -1039,25 +1180,21 @@ interface I18nValue {
 const I18nContext = createContext<I18nValue | undefined>(undefined);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(
-    () => ((localStorage.getItem("aiiot_lang") as Lang) || "en"),
-  );
+  const [lang, setLangState] = useState<Lang>(getLang);
 
   const setLang = useCallback((l: Lang) => {
     localStorage.setItem("aiiot_lang", l);
     setLangState(l);
   }, []);
 
+  // Keep the document language in sync so formatters/screen readers follow the
+  // selected UI language.
+  useEffect(() => {
+    document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  }, [lang]);
+
   const t = useCallback(
-    (key: string, vars?: Record<string, string | number>) => {
-      let s = dicts[lang][key] ?? dicts.en[key] ?? key;
-      if (vars) {
-        for (const [k, v] of Object.entries(vars)) {
-          s = s.replace(new RegExp(`{{${k}}}`, "g"), String(v));
-        }
-      }
-      return s;
-    },
+    (key: string, vars?: Record<string, string | number>) => translate(lang, key, vars),
     [lang],
   );
 

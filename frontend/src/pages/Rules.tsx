@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableSkeletonRows } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -149,10 +150,14 @@ export default function RulesPage() {
   const qc = useQueryClient();
   const { t } = useI18n();
   const { canWrite, canAdmin } = useProjectRole(projectId);
-  const { data: rules, isLoading } = useQuery({
-    queryKey: ["rules", projectId],
-    queryFn: () => api.listRules(projectId),
+  const [page, setPage] = useState(1);
+  const { data: rulesData, isLoading } = useQuery({
+    queryKey: ["rules", projectId, page],
+    queryFn: () => api.listRules(projectId, { page, pageSize: 50 }),
   });
+  const rules = rulesData?.items ?? [];
+  const total = rulesData?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / 50));
   const reference = useQuery({ queryKey: ["ruleReference"], queryFn: api.ruleReference });
   const channels = useQuery({ queryKey: ["channels", projectId], queryFn: () => api.listChannels(projectId) });
 
@@ -353,21 +358,15 @@ export default function RulesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading && (
-                <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                    {t("common.loading")}
-                  </TableCell>
-                </TableRow>
-              )}
-              {(rules ?? []).length === 0 && !isLoading && (
+              {isLoading && <TableSkeletonRows cols={7} />}
+              {rules.length === 0 && !isLoading && (
                 <TableRow>
                   <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                     {t("rules.empty")}
                   </TableCell>
                 </TableRow>
               )}
-              {(rules ?? []).map((r) => (
+              {rules.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell>
                     <Switch checked={r.enabled} onCheckedChange={() => toggle.mutate(r.id)} disabled={!canWrite} />
@@ -416,6 +415,20 @@ export default function RulesPage() {
               ))}
             </TableBody>
           </Table>
+          {totalPages > 1 && (
+            <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+              <span>{t("common.totalCount", { count: total })}</span>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                  {t("common.prev")}
+                </Button>
+                <span>{t("common.pageOf", { page, pages: totalPages })}</span>
+                <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                  {t("common.next")}
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

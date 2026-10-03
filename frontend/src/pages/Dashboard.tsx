@@ -413,7 +413,7 @@ export default function DashboardPage() {
   const [boardName, setBoardName] = useState("");
   const [boardWs, setBoardWs] = useState(0);
   const createBoard = useMutation({
-    mutationFn: () => api.createDashboard(projectId || 0, boardName.trim() || "看板", boardWs),
+    mutationFn: () => api.createDashboard(projectId || 0, boardName.trim() || t("dash.defaultBoardName"), boardWs),
     onSuccess: (b) => {
       toast.success("Dashboard created");
       setBoardOpen(false);
@@ -490,7 +490,7 @@ export default function DashboardPage() {
                       <SelectItem key={b.id} value={String(b.id)}>
                         {b.name || `#${b.id}`}
                         <span className="ml-1 text-xs text-muted-foreground">
-                          · {ws ? ws.name : "项目级"}
+                          · {ws ? ws.name : t("dash.projectLevel")}
                         </span>
                       </SelectItem>
                     );
@@ -665,7 +665,7 @@ export default function DashboardPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && boardName.trim()) createBoard.mutate();
                 }}
-                placeholder="e.g. 产线大屏"
+                placeholder={t("dash.boardNamePlaceholder")}
               />
             </div>
             <div className="space-y-2">
@@ -675,10 +675,10 @@ export default function DashboardPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="0">项目级</SelectItem>
+                  <SelectItem value="0">{t("dash.projectLevel")}</SelectItem>
                   {(workspaces.data ?? []).map((w) => (
                     <SelectItem key={w.id} value={String(w.id)}>
-                      工作区：{w.name}
+                      {t("dash.workspaceLabel", { name: w.name })}
                     </SelectItem>
                   ))}
                 </SelectContent>

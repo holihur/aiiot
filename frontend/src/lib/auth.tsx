@@ -13,6 +13,8 @@ interface AuthContextValue {
   }) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
+  /** Replace the stored access token (e.g. after a password change). */
+  applyToken: (token: string) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -60,8 +62,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const applyToken = useCallback((token: string) => {
+    setToken(token);
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refresh }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, refresh, applyToken }}>
       {children}
     </AuthContext.Provider>
   );

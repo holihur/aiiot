@@ -13,6 +13,7 @@ import (
 func NewRouter(h *Handlers) *gin.Engine {
 	loginRL := middleware.NewRateLimiter(time.Minute, 30)
 	registerRL := middleware.NewRateLimiter(time.Minute, 10)
+	versions := middleware.NewTokenVersionCache(h.DB, 30*time.Second)
 	r := gin.New()
 	r.Use(gin.Recovery(), middleware.CORS(h.CORSAllowed, h.AppEnv), metrics.HTTP())
 	r.MaxMultipartMemory = 8 << 20
@@ -38,13 +39,15 @@ func NewRouter(h *Handlers) *gin.Engine {
 			return c.Param("deviceKey")
 		}), h.HTTPIngest)
 
-	auth := api.Group("", middleware.Auth(h.Tokens))
+	auth := api.Group("", middleware.Auth(h.Tokens, versions))
 	auth.Use(middleware.Audit(h.DB))
 	{
 		auth.GET("/auth/me", h.Me)
 		auth.POST("/auth/password", h.ChangePassword)
+		auth.POST("/auth/revoke-sessions", h.RevokeSessions)
 
 		auth.GET("/projects", h.ListProjects)
+		auth.GET("/search", h.Search)
 		auth.POST("/projects", h.CreateProject)
 		auth.GET("/projects/:id", h.GetProject)
 		auth.PUT("/projects/:id", h.UpdateProject)
@@ -161,7 +164,7 @@ func NewRouter(h *Handlers) *gin.Engine {
 	admin.POST("/auth/login", h.AdminLogin)
 	// Auth + audit apply to everything below, so TOTP setup/enable/disable and
 	// password changes are both protected and recorded in audit_logs.
-	admin.Use(middleware.AdminAuth(h.Tokens))
+	admin.Use(middleware.AdminAuth(h.Tokens, versions))
 	admin.Use(middleware.Audit(h.DB))
 	admin.GET("/auth/totp/status", h.AdminTOTPStatus)
 	admin.POST("/auth/totp/setup", h.AdminTOTPSetup)

@@ -30,8 +30,12 @@ func (h *Handlers) ListRules(c *gin.Context) {
 	if !h.requireProject(c, projectID, models.ProjectRoleViewer) {
 		return
 	}
+	var total int64
+	h.DB.WithContext(c).Model(&models.Rule{}).Where("project_id = ?", projectID).Count(&total)
+	setTotalHeader(c, total)
 	var rules []models.Rule
-	if err := h.DB.WithContext(c).Where("project_id = ?", projectID).Order("priority DESC, id").Find(&rules).Error; err != nil {
+	q := applyPaging(c, h.DB.WithContext(c).Where("project_id = ?", projectID).Order("priority DESC, id"), 500)
+	if err := q.Find(&rules).Error; err != nil {
 		fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}

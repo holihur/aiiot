@@ -25,10 +25,10 @@ const DefaultTTL = 365 * 24 * time.Hour
 // Manager signs device certificates and verifies peer certificates against
 // the persisted platform CA.
 type Manager struct {
-	dir     string
-	caCert  *x509.Certificate
-	caKey   *ecdsa.PrivateKey
-	caPEM   []byte
+	dir    string
+	caCert *x509.Certificate
+	caKey  *ecdsa.PrivateKey
+	caPEM  []byte
 }
 
 // LoadOrCreate opens the CA from dir (creating it on first run). The CA

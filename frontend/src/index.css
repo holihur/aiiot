@@ -75,3 +75,12 @@
     padding-bottom: max(1rem, env(safe-area-inset-bottom));
   }
 }
+
+@layer utilities {
+  /* Lightweight virtualization: browsers skip layout/paint for off-screen
+     rows in long lists while keeping them in the DOM. No dependency needed. */
+  .cv-auto {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 3.5rem;
+  }
+}

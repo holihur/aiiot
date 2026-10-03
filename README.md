@@ -574,6 +574,33 @@ via the shadow and alert an operator:
 }
 ```
 
+## Product details & UX
+
+- **Bilingual UI (EN / 中文)** with a persistent switcher; timestamps and
+  relative times follow the selected language. A **dark mode** toggle is
+  available in both the business and admin shells.
+- **Command palette** (`/`) searches devices across *all* accessible projects
+  plus rules, groups, products and projects (`GET /api/v1/search`).
+- **Loading skeletons** on every list/table, and a top-level **error boundary**
+  so a page exception never blanks the whole SPA.
+- **One-time secrets** (device secret, rotated secret, X.509 key) are shown in
+  a dedicated dialog with copy + download, not a transient toast.
+- **Pagination** on devices, rules, alerts and audit logs (with `X-Total-Count`).
+- **CSV export** of a device's telemetry directly from the chart panel.
+- **Account security** dialog: change password and "sign out everywhere". Both
+  bump the user's `token_version`, revoking outstanding JWTs; the current
+  session receives a fresh token.
+
+### Memory-safety notes
+
+- The login/register rate limiter reclaims idle keys with an amortized sweep
+  and caps the number of tracked keys, so rotating keys cannot grow it without
+  bound.
+- The notification aggregation buffer is capped; once full, alerts are
+  delivered immediately instead of buffered.
+- Token-version checks use a short-TTL, bounded in-process cache (no per-request
+  DB read, no unbounded revocation set).
+
 ## Documentation
 
 - **[docs/architecture.md](docs/architecture.md)** — Mermaid architecture

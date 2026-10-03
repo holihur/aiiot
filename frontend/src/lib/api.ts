@@ -509,6 +509,9 @@ export const api = {
   register: (payload: { username: string; email: string; password: string; displayName?: string }) =>
     post<{ token: string; user: User }>("/auth/register", payload),
   me: () => get<User>("/auth/me"),
+  changePassword: (oldPassword: string, newPassword: string) =>
+    post<{ ok: boolean; token: string; expiresAt: string }>("/auth/password", { oldPassword, newPassword }),
+  revokeSessions: () => post<{ ok: boolean; token: string; expiresAt: string }>("/auth/revoke-sessions"),
 
   listProjects: () => get<Project[]>("/projects"),
   createProject: (b: { key: string; name: string; description?: string }) => post<Project>("/projects", b),
@@ -582,6 +585,12 @@ export const api = {
     });
     return getPaged<Device>(`/projects/${projectId}/devices?${qs.toString()}`);
   },
+  search: (q: string) =>
+    get<{
+      devices: { id: number; name: string; key: string; projectId: number }[];
+      rules: { id: number; name: string; projectId: number }[];
+      groups: { id: number; name: string; projectId: number }[];
+    }>(`/search?q=${encodeURIComponent(q)}`),
   createDevice: (productId: number, b: { name: string; workspaceId: number; key?: string; secret?: string }) =>
     post<{ device: Device; secret: string }>(`/products/${productId}/devices`, b),
   getDevice: (id: number) => get<Device>(`/devices/${id}`),
@@ -620,6 +629,25 @@ export const api = {
     if (opts?.limit) qs.set("limit", String(opts.limit));
     const q = qs.toString();
     return get<DeviceEvent[]>(`/devices/${id}/events${q ? `?${q}` : ""}`);
+  },
+  exportTelemetry: async (id: number, p: { identifiers: string[]; from?: string; to?: string; interval?: string }) => {
+    const qs = new URLSearchParams();
+    qs.set("identifiers", p.identifiers.join(","));
+    if (p.from) qs.set("from", p.from);
+    if (p.to) qs.set("to", p.to);
+    if (p.interval) qs.set("interval", p.interval);
+    const token = getToken();
+    const res = await fetch(`${BASE}/devices/${id}/telemetry/export?${qs.toString()}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`export failed (${res.status})`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `telemetry_${id}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   },
   downlinks: (id: number) => get<DeviceDownlinkLog[]>(`/devices/${id}/downlinks`),
   timeline: (id: number) => get<TimelineItem[]>(`/devices/${id}/timeline`),
@@ -662,7 +690,13 @@ export const api = {
   clearShadowDesired: (id: number) => del<DeviceShadow>(`/devices/${id}/shadow/desired`),
   getShadowHistory: (id: number) => get<ShadowLog[]>(`/devices/${id}/shadow/history?limit=50`),
 
-  listRules: (projectId: number) => get<Rule[]>(`/projects/${projectId}/rules`),
+  listRules: (projectId: number, opts?: { page?: number; pageSize?: number }) => {
+    const qs = new URLSearchParams();
+    if (opts?.page) qs.set("page", String(opts.page));
+    if (opts?.pageSize) qs.set("pageSize", String(opts.pageSize));
+    const q = qs.toString();
+    return getPaged<Rule>(`/projects/${projectId}/rules${q ? `?${q}` : ""}`);
+  },
   createRule: (projectId: number, b: Partial<Rule>) => post<Rule>(`/projects/${projectId}/rules`, b),
   updateRule: (id: number, b: Partial<Rule>) => put<Rule>(`/rules/${id}`, b),
   deleteRule: (id: number) => del<{ ok: boolean }>(`/rules/${id}`),
@@ -699,13 +733,15 @@ export const api = {
   deleteChannel: (id: number) => del<{ ok: boolean }>(`/channels/${id}`),
   testChannel: (id: number) => post<{ ok: boolean }>(`/channels/${id}/test`),
   channelLogs: (id: number) => get<NotificationLog[]>(`/channels/${id}/logs`),
-  listAlerts: (projectId: number, opts?: { status?: string; deviceId?: number; limit?: number }) => {
+  listAlerts: (projectId: number, opts?: { status?: string; deviceId?: number; limit?: number; page?: number; pageSize?: number }) => {
     const qs = new URLSearchParams();
     if (opts?.status) qs.set("status", opts.status);
     if (opts?.deviceId) qs.set("deviceId", String(opts.deviceId));
     if (opts?.limit) qs.set("limit", String(opts.limit));
+    if (opts?.page) qs.set("page", String(opts.page));
+    if (opts?.pageSize) qs.set("pageSize", String(opts.pageSize));
     const q = qs.toString();
-    return get<{ items: Alert[]; counts: Record<string, number> }>(
+    return get<{ items: Alert[]; counts: Record<string, number>; total: number }>(
       `/projects/${projectId}/alerts${q ? `?${q}` : ""}`,
     );
   },
@@ -764,6 +800,23 @@ async function adminRequest<T>(method: string, path: string, body?: unknown): Pr
   return data as T;
 }
 
+// adminRequestPaged reads the X-Total-Count header alongside an admin list.
+async function adminRequestPaged<T>(path: string): Promise<{ items: T[]; total: number }> {
+  const headers: Record<string, string> = {};
+  const token = getAdminToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(`${BASE}/admin${path}`, { headers });
+  if (res.status === 401) {
+    setAdminToken(null);
+    if (!window.location.pathname.startsWith("/admin/login")) window.location.href = "/admin/login";
+    throw new Error("unauthorized");
+  }
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : [];
+  if (!res.ok) throw new Error(data?.error || `request failed (${res.status})`);
+  return { items: data as T[], total: Number(res.headers.get("X-Total-Count") || (data as T[]).length) };
+}
+
 export interface AdminUser {
   id: number;
   username: string;
@@ -793,13 +846,15 @@ export const adminApi = {
   natsStats: () => adminRequest<NATSStats>("GET", "/nats-stats"),
   refreshRollup: () => adminRequest<{ ok: boolean; rollup: RollupInfo }>("POST", "/storage/rollup/refresh"),
   dropPartition: (name: string) => adminRequest<{ ok: boolean }>("DELETE", `/storage/partitions/${name}`),
-  listAuditLogs: (filters?: { path?: string; projectId?: number; limit?: number }) => {
+  listAuditLogs: (filters?: { path?: string; projectId?: number; limit?: number; page?: number; pageSize?: number }) => {
     const qs = new URLSearchParams();
     if (filters?.path) qs.set("path", filters.path);
     if (filters?.projectId) qs.set("projectId", String(filters.projectId));
     if (filters?.limit) qs.set("limit", String(filters.limit));
+    if (filters?.page) qs.set("page", String(filters.page));
+    if (filters?.pageSize) qs.set("pageSize", String(filters.pageSize));
     const q = qs.toString();
-    return adminRequest<AuditLog[]>("GET", `/audit-logs${q ? `?${q}` : ""}`);
+    return adminRequestPaged<AuditLog>(`/audit-logs${q ? `?${q}` : ""}`);
   },
 };
 

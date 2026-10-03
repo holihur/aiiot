@@ -693,9 +693,15 @@ export default function ProductDetailPage() {
                   <TableCell className="font-mono text-xs">{f.checksum.slice(0, 16)}...</TableCell>
                   <TableCell className="text-right">
                     {canManage && (
-                    <Button variant="ghost" size="icon" onClick={() => deleteFw.mutate(f.id)}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                      <ConfirmButton
+                        title={t("product.deleteFirmware")}
+                        description={t("product.deleteFirmwareConfirm", { version: f.version })}
+                        onConfirm={() => deleteFw.mutateAsync(f.id)}
+                      >
+                        <Button variant="ghost" size="icon">
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </ConfirmButton>
                     )}
                   </TableCell>
                 </TableRow>

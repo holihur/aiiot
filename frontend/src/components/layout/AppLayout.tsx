@@ -3,7 +3,10 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { Boxes, LayoutDashboard, LogOut, Menu, Radio, FolderKanban, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { ProjectSwitcher } from "@/components/ProjectSwitcher";
+import GlobalSearch from "@/components/GlobalSearch";
+import { AccountSecurityDialog } from "@/components/AccountSecurityDialog";
 import { LanguageSwitcher, useI18n } from "@/lib/i18n";
+import { ThemeToggle } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +34,7 @@ export function AppLayout() {
         key={item.to}
         to={item.to}
         end={item.end}
+        onMouseEnter={() => prefetchRoute(item.to)}
         onClick={onNavigate}
         className={({ isActive }) =>
           cn(
@@ -64,7 +68,8 @@ export function AppLayout() {
           <Radio className="h-5 w-5 text-primary" />
           <span className="font-semibold tracking-tight">{t("app.title")}</span>
         </div>
-        <div className="border-b p-3">
+        <div className="space-y-2 border-b p-3">
+          <GlobalSearch />
           <ProjectSwitcher />
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">{navigation()}</nav>
@@ -79,8 +84,12 @@ export function AppLayout() {
           <Button variant="outline" size="sm" className="w-full" onClick={signOut}>
             <LogOut className="h-4 w-4" /> {t("nav.signOut")}
           </Button>
-          <div className="mt-2 flex justify-center">
+          <div className="mt-2">
+            <AccountSecurityDialog />
+          </div>
+          <div className="mt-2 flex items-center justify-center gap-1">
             <LanguageSwitcher />
+            <ThemeToggle />
           </div>
         </div>
       </aside>
@@ -107,8 +116,12 @@ export function AppLayout() {
               <Button variant="outline" size="sm" className="w-full" onClick={signOut}>
                 <LogOut className="h-4 w-4" /> {t("nav.signOut")}
               </Button>
-              <div className="mt-2 flex justify-center">
+              <div className="mt-2">
+                <AccountSecurityDialog />
+              </div>
+              <div className="mt-2 flex items-center justify-center gap-1">
                 <LanguageSwitcher />
+                <ThemeToggle />
               </div>
             </div>
           </aside>
@@ -155,4 +168,19 @@ export function AppLayout() {
       </div>
     </div>
   );
+}
+
+
+// prefetchRoute warms the lazy-loaded route chunk on hover so page switches
+// render instantly. MapView/dashboard chunks are the heavy ones.
+let prefetched = new Set<string>();
+function prefetchRoute(to: string) {
+  if (prefetched.has(to)) return;
+  prefetched.add(to);
+  const imp: Record<string, () => Promise<unknown>> = {
+    "/": () => import("../../pages/Dashboard"),
+    "/projects": () => import("../../pages/Projects"),
+    "/products": () => import("../../pages/Products"),
+  };
+  imp[to]?.().catch(() => {});
 }

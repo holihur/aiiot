@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, KeyRound, Plug, RefreshCw, Search, Send, Trash2, Wifi } from "lucide-react";
+import { ArrowLeft, Download, KeyRound, Plug, RefreshCw, Search, Send, Trash2, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import {
   CartesianGrid,
@@ -17,6 +17,7 @@ import { useI18n } from "@/lib/i18n";
 import { useEventStream } from "@/lib/useEventStream";
 import { ConnectDialog } from "@/components/ConnectDialog";
 import { ConfirmButton } from "@/components/ConfirmButton";
+import { SecretDialog } from "@/components/SecretDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -167,6 +168,24 @@ export default function DeviceDetailPage() {
     enabled: identifiers.length > 0,
   });
 
+  const rangeFrom = () =>
+    new Date(
+      Date.now() -
+        Number(range.replace("h", "").replace("d", "")) * (range.endsWith("d") ? 86400000 : 3600000),
+    ).toISOString();
+
+  const exportCsv = useMutation({
+    mutationFn: () =>
+      api.exportTelemetry(deviceId, {
+        identifiers,
+        interval: interval === "raw" ? "5m" : interval,
+        from: rangeFrom(),
+        to: new Date().toISOString(),
+      }),
+    onSuccess: () => toast.success(t("device.exported")),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   // chart rows: one entry per time bucket with a column per selected series
   const chartData = useMemo(() => {
     const pts = telemetry.data?.points ?? [];
@@ -182,7 +201,13 @@ export default function DeviceDetailPage() {
     const series = [
       ...new Set(pts.map((p) => p.identifier ?? "value").filter((id) => identifiers.includes(id))),
     ];
-    return { rows: [...rows.values()].reverse(), series };
+    // Downsample very dense raw series before handing them to the chart so a
+    // long range cannot allocate/render tens of thousands of SVG points.
+    const all = [...rows.values()].reverse();
+    const maxPoints = 1500;
+    const step = Math.max(1, Math.ceil(all.length / maxPoints));
+    const sampled = step > 1 ? all.filter((_, i) => i % step === 0 || i === all.length - 1) : all;
+    return { rows: sampled, series };
   }, [telemetry.data, identifiers]);
 
   const toggleIdentifier = (id: string, on: boolean) =>
@@ -247,6 +272,7 @@ export default function DeviceDetailPage() {
 
   const [desiredPatch, setDesiredPatch] = useState('{\n  "reportInterval": 60\n}');
   const [connectOpen, setConnectOpen] = useState(false);
+  const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
   const applyDesired = useMutation({
     mutationFn: () => api.patchShadowDesired(deviceId, JSON.parse(desiredPatch || "{}")),
     onSuccess: () => {
@@ -267,7 +293,7 @@ export default function DeviceDetailPage() {
 
   const rotate = useMutation({
     mutationFn: () => api.rotateSecret(deviceId),
-    onSuccess: (r) => toast.success(`New secret: ${r.secret}`, { duration: 20000 }),
+    onSuccess: (r) => setRevealedSecret(r.secret),
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -408,6 +434,13 @@ export default function DeviceDetailPage() {
               </div>
               <Button variant="outline" onClick={() => telemetry.refetch()}>
                 <RefreshCw className="h-4 w-4" /> {t("common.refresh")}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={identifiers.length === 0 || exportCsv.isPending}
+                onClick={() => exportCsv.mutate()}
+              >
+                <Download className="h-4 w-4" /> {t("device.exportCsv")}
               </Button>
               {telemetry.data?.source && <Badge variant="outline">source: {telemetry.data.source}</Badge>}
             </CardHeader>
@@ -824,7 +857,7 @@ export default function DeviceDetailPage() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label>位置 GIS</Label>
+                  <Label>{t("device.gisLocation")}</Label>
                 </div>
                 <div className="grid max-w-md grid-cols-2 gap-2">
                   <div className="space-y-1">
@@ -860,7 +893,7 @@ export default function DeviceDetailPage() {
                     updateTags.mutate(tags);
                   }}
                 >
-                  保存位置点
+                  {t("device.saveLocation")}
                 </Button>
               </div>
               <div className="flex flex-wrap gap-3">
@@ -880,10 +913,7 @@ export default function DeviceDetailPage() {
                   </Button>
                 </ConfirmButton>
               </div>
-              <p className="text-sm text-muted-foreground">
-                Connection credentials: username <code className="rounded bg-muted px-1">{"{productKey}/{deviceKey}"}</code>, password is the
-                device secret.
-              </p>
+              <p className="text-sm text-muted-foreground">{t("device.credentialsHint")}</p>
               <Link to={d ? `/projects/${d.projectId}/devices` : "#"} className="text-sm text-primary hover:underline">
                 {t("device.backToDevices")}
               </Link>
@@ -893,6 +923,13 @@ export default function DeviceDetailPage() {
       </Tabs>
 
       <ConnectDialog deviceId={deviceId} deviceName={d?.name} open={connectOpen} onOpenChange={setConnectOpen} />
+      <SecretDialog
+        open={!!revealedSecret}
+        onOpenChange={(o) => !o && setRevealedSecret(null)}
+        secret={revealedSecret ?? ""}
+        subject={d?.name}
+        filename={d?.name}
+      />
     </div>
   );
 }

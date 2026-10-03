@@ -13,6 +13,8 @@ type AdminUser struct {
 	// derived key); TotpEnabled switches login 2FA on.
 	TotpSecretEnc string `gorm:"type:text" json:"-"`
 	TotpEnabled   bool   `gorm:"default:false" json:"totpEnabled"`
+	// TokenVersion revokes outstanding admin tokens when bumped.
+	TokenVersion int `gorm:"not null;default:0" json:"-"`
 }
 
 func (AdminUser) TableName() string { return "admin_users" }

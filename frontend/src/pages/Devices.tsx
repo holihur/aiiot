@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ListSkeleton, TableSkeletonRows } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ProjectNav } from "@/components/ProjectNav";
+import { SecretDialog } from "@/components/SecretDialog";
 import { useProjectRole } from "@/lib/useProjectRole";
 import { formatTime } from "@/lib/utils";
 
@@ -72,6 +74,7 @@ export default function DevicesPage() {
   const [form, setForm] = useState({ name: "", productId: "", workspaceId: "" });
 
   const [selected, setSelected] = useState<number[]>([]);
+  const [revealed, setRevealed] = useState<{ secret: string; name: string } | null>(null);
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchForm, setBatchForm] = useState({
     action: "command",
@@ -95,7 +98,8 @@ export default function DevicesPage() {
         workspaceId: Number(form.workspaceId),
       }),
     onSuccess: (res) => {
-      toast.success(`Device created. Secret: ${res.secret}`, { duration: 15000 });
+      setRevealed({ secret: res.secret, name: res.device.name || res.device.key });
+      toast.success(t("device.created"));
       setOpen(false);
       setForm({ name: "", productId: "", workspaceId: "" });
       void qc.invalidateQueries({ queryKey: ["devices"] });
@@ -263,7 +267,8 @@ export default function DevicesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.length === 0 && (
+              {devices.isLoading && <TableSkeletonRows cols={8} />}
+              {!devices.isLoading && items.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
                     <Cpu className="mx-auto mb-2 h-6 w-6" />
@@ -300,11 +305,12 @@ export default function DevicesPage() {
           </Table>
           </div>
           <div className="space-y-2 md:hidden">
-            {items.length === 0 && (
+            {devices.isLoading && <ListSkeleton rows={5} />}
+            {!devices.isLoading && items.length === 0 && (
               <p className="py-8 text-center text-sm text-muted-foreground">{t("devices.empty")}</p>
             )}
             {items.map((d) => (
-              <div key={d.id} className="rounded-lg border p-3 text-sm">
+              <div key={d.id} className="cv-auto rounded-lg border p-3 text-sm">
                 <div className="flex items-center justify-between">
                   <span className="font-medium">{d.name}</span>
                   <Badge variant={d.online ? "success" : "secondary"}>{d.online ? "online" : "offline"}</Badge>
@@ -417,6 +423,14 @@ export default function DevicesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SecretDialog
+        open={!!revealed}
+        onOpenChange={(o) => !o && setRevealed(null)}
+        secret={revealed?.secret ?? ""}
+        subject={revealed?.name}
+        filename={revealed?.name}
+      />
     </div>
   );
 }

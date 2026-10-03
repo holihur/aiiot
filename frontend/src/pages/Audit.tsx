@@ -8,21 +8,26 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TableSkeletonRows } from "@/components/ui/skeleton";
 import { formatTime } from "@/lib/utils";
 
 export default function AuditPage() {
   const { t } = useI18n();
   const [path, setPath] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [page, setPage] = useState(1);
   const logs = useQuery({
-    queryKey: ["admin", "audit", path, projectId],
+    queryKey: ["admin", "audit", path, projectId, page],
     queryFn: () =>
       adminApi.listAuditLogs({
         path: path || undefined,
         projectId: projectId ? Number(projectId) : undefined,
-        limit: 300,
+        page,
+        pageSize: 100,
       }),
   });
+  const logsTotal = logs.data?.total ?? 0;
+  const logsTotalPages = Math.max(1, Math.ceil(logsTotal / 100));
 
   return (
     <div className="space-y-6">
@@ -39,13 +44,13 @@ export default function AuditPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative w-full sm:max-w-xs">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input className="pl-8" placeholder={t("audit.filterPath")} value={path} onChange={(e) => setPath(e.target.value)} />
+          <Input className="pl-8" placeholder={t("audit.filterPath")} value={path} onChange={(e) => { setPath(e.target.value); setPage(1); }} />
         </div>
         <Input
           className="w-full sm:w-44"
           placeholder={t("audit.projectId")}
           value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
+          onChange={(e) => { setProjectId(e.target.value); setPage(1); }}
         />
       </div>
 
@@ -69,14 +74,15 @@ export default function AuditPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(logs.data ?? []).length === 0 && (
+              {logs.isLoading && <TableSkeletonRows cols={6} />}
+              {!logs.isLoading && (logs.data?.items ?? []).length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
                     {t("audit.empty")}
                   </TableCell>
                 </TableRow>
               )}
-              {(logs.data ?? []).map((l) => (
+              {(logs.data?.items ?? []).map((l) => (
                 <TableRow key={l.id}>
                   <TableCell className="whitespace-nowrap text-xs">{formatTime(l.createdAt)}</TableCell>
                   <TableCell className="hidden text-sm md:table-cell">{l.username || `#${l.userId}`}</TableCell>
@@ -92,6 +98,20 @@ export default function AuditPage() {
               ))}
             </TableBody>
           </Table>
+          {logsTotalPages > 1 && (
+            <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
+              <span>{t("common.totalCount", { count: logsTotal })}</span>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                  {t("common.prev")}
+                </Button>
+                <span>{t("common.pageOf", { page, pages: logsTotalPages })}</span>
+                <Button variant="outline" size="sm" disabled={page >= logsTotalPages} onClick={() => setPage((p) => p + 1)}>
+                  {t("common.next")}
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

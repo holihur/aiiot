@@ -50,6 +50,11 @@ type aggEntry struct {
 	deadline  time.Time
 }
 
+// maxPendingAlerts bounds the aggregation buffer so a long aggregation window
+// with many distinct (channel, rule, device) keys cannot grow memory without
+// limit. Once full, new alerts are delivered immediately instead of buffered.
+const maxPendingAlerts = 10_000
+
 type smtpConfig struct {
 	Host    string
 	Port    int
@@ -145,21 +150,28 @@ func (n *Notifier) Send(ctx context.Context, channelID uint, title, body string,
 
 	if opts.AggregateSeconds > 0 {
 		key := fmt.Sprintf("%d|%v|%d", channelID, ruleIDValue(ruleID), deviceID)
+		deadline := time.Now().Add(time.Duration(opts.AggregateSeconds) * time.Second)
 		n.mu.Lock()
 		if e, ok := n.pending[key]; ok {
 			e.count++
 			e.lastBody = body
-			e.deadline = time.Now().Add(time.Duration(opts.AggregateSeconds) * time.Second)
-		} else {
-			n.pending[key] = &aggEntry{
-				channelID: channelID,
-				ruleID:    ruleID,
-				deviceID:  deviceID,
-				title:     title,
-				count:     1,
-				lastBody:  body,
-				deadline:  time.Now().Add(time.Duration(opts.AggregateSeconds) * time.Second),
-			}
+			e.deadline = deadline
+			n.mu.Unlock()
+			return nil
+		}
+		if len(n.pending) >= maxPendingAlerts {
+			n.mu.Unlock()
+			// Buffer is full: deliver now rather than grow memory unbounded.
+			return n.deliverAndLog(ctx, &ch, title, body, ruleID, deviceID, 1, false)
+		}
+		n.pending[key] = &aggEntry{
+			channelID: channelID,
+			ruleID:    ruleID,
+			deviceID:  deviceID,
+			title:     title,
+			count:     1,
+			lastBody:  body,
+			deadline:  deadline,
 		}
 		n.mu.Unlock()
 		return nil

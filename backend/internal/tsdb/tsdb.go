@@ -57,13 +57,13 @@ type Point struct {
 
 // LatestRow is the cached latest value for a (device, identifier) pair.
 type LatestRow struct {
-	Key        string
-	DataType   string
-	NumValue   *float64
-	BoolValue  *bool
-	StrValue   *string
-	JSONValue  models.JSONMap
-	UpdatedAt  time.Time
+	Key       string
+	DataType  string
+	NumValue  *float64
+	BoolValue *bool
+	StrValue  *string
+	JSONValue models.JSONMap
+	UpdatedAt time.Time
 }
 
 // Query is a time-boxed, optionally filtered read.

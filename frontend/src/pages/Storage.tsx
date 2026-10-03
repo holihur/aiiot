@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Skeleton, TableSkeletonRows } from "@/components/ui/skeleton";
 
 function formatBytes(n: number) {
   if (!n) return "0 B";
@@ -67,7 +68,7 @@ export default function StoragePage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{data?.partitions.length ?? 0}</div>
+            <div className="text-3xl font-bold">{isLoading ? <Skeleton className="h-8 w-16" /> : data?.partitions.length ?? 0}</div>
           </CardContent>
         </Card>
         <Card>
@@ -77,7 +78,7 @@ export default function StoragePage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{(data?.totalRows ?? 0).toLocaleString()}</div>
+            <div className="text-3xl font-bold">{isLoading ? <Skeleton className="h-8 w-24" /> : (data?.totalRows ?? 0).toLocaleString()}</div>
           </CardContent>
         </Card>
         <Card>
@@ -85,7 +86,7 @@ export default function StoragePage() {
             <CardTitle className="text-sm text-muted-foreground">{t("storage.diskSize")}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{formatBytes(data?.totalBytes ?? 0)}</div>
+            <div className="text-3xl font-bold">{isLoading ? <Skeleton className="h-8 w-20" /> : formatBytes(data?.totalBytes ?? 0)}</div>
           </CardContent>
         </Card>
       </div>
@@ -160,13 +161,7 @@ export default function StoragePage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {isLoading && (
-                <TableRow>
-                  <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                    {t("common.loading")}
-                  </TableCell>
-                </TableRow>
-              )}
+              {isLoading && <TableSkeletonRows cols={5} />}
               {(data?.partitions ?? []).map((p) => (
                 <TableRow key={p.name}>
                   <TableCell className="font-mono text-xs">{p.name}</TableCell>

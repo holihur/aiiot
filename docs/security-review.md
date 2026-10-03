@@ -48,9 +48,12 @@ console, SDK surface. Findings verified against the codebase at commit
    untrusted operators exist, add egress allow-listing / proxy.
 3. **Scale**: rate limiters are process-local maps; multi-replica needs a shared
    store (Redis) when scaling cores.
-4. **Token lifecycle**: JWT has no refresh/revocation path; password changes do
-   not invalidate outstanding tokens. Acceptable for now; add revocation list or
-   short-TTL + refresh if required by compliance.
+4. **Token lifecycle**: JWTs are now revocable — every user/admin row carries a
+   `token_version` embedded in the token, and the auth middleware rejects
+   tokens whose version is stale (checked through a short-TTL, bounded
+   in-process cache). Password change and "sign out everywhere" bump the
+   version. There is still no refresh token; the mitigation is the short TTL
+   plus re-login. Add a refresh flow if long-lived sessions are required.
 5. **TLS termination** is out of process (reverse proxy / gateway TLS). Ensure
    the public endpoint is HTTPS (Caddy present on this host).
 6. Audit `client_ip` uses `X-Forwarded-For`; configure the proxy to set/trust it
