@@ -16,7 +16,7 @@ type productRequest struct {
 	Key         string `json:"key" binding:"omitempty,min=2,max=64"`
 	Name        string `json:"name" binding:"required,max=160"`
 	Category    string `json:"category"`
-	Protocol    string `json:"protocol" binding:"required,oneof=mqtt coap custom modbus"`
+	Protocol    string `json:"protocol" binding:"required,oneof=mqtt coap custom modbus opcua"`
 	DataFormat  string `json:"dataFormat"`
 	Description string `json:"description"`
 	Status      string `json:"status"`

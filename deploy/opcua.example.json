@@ -1,0 +1,13 @@
+{
+  "devices": [
+    {
+      "deviceKey": "cnc-line1",
+      "endpoint": "opc.tcp://127.0.0.1:4840",
+      "pollEvery": "5s",
+      "nodes": [
+        { "identifier": "temp", "nodeID": "ns=2;s=Temp", "dataType": "double", "scale": 0.1 },
+        { "identifier": "running", "nodeID": "ns=2;s=Machine.Running", "dataType": "bool" }
+      ]
+    }
+  ]
+}

@@ -151,6 +151,7 @@ GATEWAY_TOKEN=$(grep GATEWAY_TOKEN .env | cut -d= -f2) ./bin/mqtt-gateway
 GATEWAY_TOKEN=... ./bin/coap-gateway
 GATEWAY_TOKEN=... ./bin/custom-gateway
 GATEWAY_TOKEN=... MODBUS_CONFIG_FILE=./deploy/modbus.example.json ./bin/modbus-gateway
+GATEWAY_TOKEN=... OPCUA_CONFIG_FILE=./deploy/opcua.example.json ./bin/opcua-gateway
 ```
 
 > **Modbus**: the gateway is *master-driven* — it dials the configured PLCs,

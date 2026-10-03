@@ -42,7 +42,7 @@ export interface Product {
   key: string;
   name: string;
   category?: string;
-  protocol: "mqtt" | "coap" | "custom" | "modbus";
+  protocol: "mqtt" | "coap" | "custom" | "modbus" | "opcua";
   dataFormat: string;
   description?: string;
   status: string;

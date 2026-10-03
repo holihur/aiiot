@@ -55,7 +55,7 @@ export default function ProductsPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     name: "",
-    protocol: "mqtt" as "mqtt" | "coap" | "custom" | "modbus",
+    protocol: "mqtt" as "mqtt" | "coap" | "custom" | "modbus" | "opcua",
     category: "",
     description: "",
   });
@@ -99,7 +99,7 @@ export default function ProductsPage() {
                 <Label>{t("common.protocol")}</Label>
                 <Select
                   value={form.protocol}
-                  onValueChange={(v) => setForm({ ...form, protocol: v as "mqtt" | "coap" | "custom" | "modbus" })}
+                  onValueChange={(v) => setForm({ ...form, protocol: v as "mqtt" | "coap" | "custom" | "modbus" | "opcua" })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -109,6 +109,7 @@ export default function ProductsPage() {
                     <SelectItem value="coap">CoAP</SelectItem>
                     <SelectItem value="custom">Custom</SelectItem>
                     <SelectItem value="modbus">Modbus</SelectItem>
+                    <SelectItem value="opcua">OPC-UA</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

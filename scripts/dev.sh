@@ -75,9 +75,14 @@ case "${1:-start}" in
     else
       echo "modbus-gateway skipped (set MODBUS_CONFIG_FILE to enable)"
     fi
+    if [ -n "${OPCUA_CONFIG_FILE:-}" ]; then
+      start opcua-gateway env GATEWAY_CORE_URL=http://127.0.0.1:8080 OPCUA_CONFIG_FILE="$OPCUA_CONFIG_FILE" ./bin/opcua-gateway
+    else
+      echo "opcua-gateway skipped (set OPCUA_CONFIG_FILE to enable)"
+    fi
     ;;
   stop)
-    stop modbus-gateway; stop mqtt-gateway; stop coap-gateway; stop custom-gateway; stop core; stop nats
+    stop opcua-gateway; stop modbus-gateway; stop mqtt-gateway; stop coap-gateway; stop custom-gateway; stop core; stop nats
     ;;
   restart)
     "$0" stop; sleep 1; "$0" start
